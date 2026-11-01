@@ -35,6 +35,36 @@ export interface CliqueGroup {
   words: string[];
 }
 
+export interface OverlapClusterGroup {
+  id: number;
+  label: string;
+  origLabel: string;
+  overlapCount: number;
+  jaccardScore: number;
+  color: string;
+  words: string[];
+  addedWords: string[];
+  inSetCover: boolean;
+  setCoverNewlyAdded: number;
+}
+
+export interface OverlapAnalysis {
+  clusters: OverlapClusterGroup[];
+  setCoverCount: number;
+  dualNodeCount: number;
+  dualEdgeCount: number;
+  dualClusterCount: number;
+  nodesWithOverlap: number;
+  overlapPercentage: number;
+  meanClustersPerNode: number;
+  maxClustersPerNode: number;
+  nodeToClusters: Map<string, string[]>;
+  bridgeWords: { word: string; clusters: string[] }[];
+  cpmCoveredNodes: number;
+  cpmCoveragePercentage: number;
+  cpmMeanClustersPerNode: number;
+}
+
 export interface GalaxyGraph {
   nodes: Map<string, GraphNode>;
   edges: GraphEdge[];
@@ -43,6 +73,7 @@ export interface GalaxyGraph {
   adjUndirected: Map<string, Map<string, number>>;
   clusters: ClusterGroup[];
   cliques: CliqueGroup[];
+  overlap: OverlapAnalysis;
 }
 
 export const CLUSTER_COLORS = [
@@ -137,11 +168,9 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
     adjDirected.get(source)!.set(target, weight);
     adjReverse.get(target)!.set(source, weight);
 
-    // In NetworkX G.to_undirected(), edge weight is set from directed edges
-    const prevUndir = adjUndirected.get(source)!.get(target) ?? 0;
-    const undirWeight = Math.max(prevUndir, weight);
-    adjUndirected.get(source)!.set(target, undirWeight);
-    adjUndirected.get(target)!.set(source, undirWeight);
+    // In NetworkX G.to_undirected() / nx.Graph.add_edge, the undirected edge weight is set by the last edge encountered
+    adjUndirected.get(source)!.set(target, weight);
+    adjUndirected.get(target)!.set(source, weight);
   }
 
   const edges: GraphEdge[] = [];
@@ -189,6 +218,16 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
   // Compute k-clique communities like gnl.kcliques(G.to_undirected())
   const cliques = computeKCliqueCommunities(nodeIds, adjUndirected);
 
+  // Compute Overlapping Clusters via Line Graph (Dual Graph) + Louvain + Attachment
+  const overlap = computeOverlapAnalysis(
+    nodes,
+    adjUndirected,
+    clusters,
+    cliques,
+    'best_overlap',
+    0.25
+  );
+
   return {
     nodes,
     edges,
@@ -197,6 +236,7 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
     adjUndirected,
     clusters,
     cliques,
+    overlap,
   };
 }
 
@@ -321,6 +361,142 @@ function computeClosenessCentrality(
 }
 
 /**
+ * Full multi-level Louvain modularity maximization (Phase 1 local moving + Phase 2 community aggregation),
+ * matching community_louvain.best_partition / igraph.community_multilevel.
+ * Input: array of adjacency maps (nodeIdx -> (neighborIdx -> weight)) for an undirected graph.
+ * Returns: Int32Array of community IDs for each original node 0..N-1.
+ */
+function runMultilevelLouvain(initialAdj: Map<number, number>[]): Int32Array {
+  const N = initialAdj.length;
+  const finalComm = new Int32Array(N);
+  for (let i = 0; i < N; i++) finalComm[i] = i;
+  if (N === 0) return finalComm;
+
+  let m2 = 0;
+  for (let i = 0; i < N; i++) {
+    for (const [j, w] of initialAdj[i].entries()) {
+      m2 += i === j ? 2 * w : w;
+    }
+  }
+  if (m2 <= 0) return finalComm;
+
+  let currentAdj = initialAdj;
+  let K = N;
+
+  for (let level = 0; level < 10; level++) {
+    const comm = new Int32Array(K);
+    const sigmaTot = new Float64Array(K);
+    const kNode = new Float64Array(K);
+    const selfLoop = new Float64Array(K);
+
+    for (let i = 0; i < K; i++) {
+      comm[i] = i;
+      let deg = 0;
+      for (const [j, w] of currentAdj[i].entries()) {
+        if (i === j) {
+          deg += 2 * w;
+          selfLoop[i] = w;
+        } else {
+          deg += w;
+        }
+      }
+      kNode[i] = deg;
+      sigmaTot[i] = deg;
+    }
+
+    let improved = true;
+    let anyMovedInLevel = false;
+    let iter = 0;
+
+    while (improved && iter < 30) {
+      improved = false;
+      iter++;
+
+      for (let i = 0; i < K; i++) {
+        const cOld = comm[i];
+        const ki = kNode[i];
+
+        sigmaTot[cOld] -= ki;
+        comm[i] = -1;
+
+        const commWeights = new Map<number, number>();
+        commWeights.set(cOld, 0);
+
+        for (const [j, w] of currentAdj[i].entries()) {
+          if (i === j) continue;
+          const cj = comm[j];
+          if (cj >= 0) {
+            commWeights.set(cj, (commWeights.get(cj) ?? 0) + w);
+          }
+        }
+
+        let bestComm = cOld;
+        let bestGain = -Infinity;
+
+        for (const [cCand, kIn] of commWeights.entries()) {
+          // 2 * kIn - (sigmaTot[cCand] * ki) / (m2 / 2) === 2 * (kIn - (sigmaTot[cCand] * ki) / m2)
+          const gain = kIn - (sigmaTot[cCand] * ki) / m2;
+          if (gain > bestGain + 1e-12) {
+            bestGain = gain;
+            bestComm = cCand;
+          }
+        }
+
+        comm[i] = bestComm;
+        sigmaTot[bestComm] += ki;
+        if (bestComm !== cOld) {
+          improved = true;
+          anyMovedInLevel = true;
+        }
+      }
+    }
+
+    // Renumber communities 0 .. C-1
+    const renum = new Map<number, number>();
+    let nextId = 0;
+    for (let i = 0; i < K; i++) {
+      const c = comm[i];
+      if (!renum.has(c)) renum.set(c, nextId++);
+      comm[i] = renum.get(c)!;
+    }
+
+    // Project back to original nodes
+    for (let idx = 0; idx < N; idx++) {
+      finalComm[idx] = comm[finalComm[idx]];
+    }
+
+    const C = nextId;
+    if (!anyMovedInLevel || C === K || C <= 1) {
+      break;
+    }
+
+    // Phase 2: Aggregate graph into C super-nodes
+    const nextAdj: Map<number, number>[] = Array.from({ length: C }, () => new Map());
+    for (let u = 0; u < K; u++) {
+      const cu = comm[u];
+      for (const [v, w] of currentAdj[u].entries()) {
+        const cv = comm[v];
+        if (u === v) {
+          nextAdj[cu].set(cu, (nextAdj[cu].get(cu) ?? 0) + w);
+        } else if (u < v) {
+          if (cu === cv) {
+            nextAdj[cu].set(cu, (nextAdj[cu].get(cu) ?? 0) + w);
+          } else {
+            nextAdj[cu].set(cv, (nextAdj[cu].get(cv) ?? 0) + w);
+            nextAdj[cv].set(cu, (nextAdj[cv].get(cu) ?? 0) + w);
+          }
+        }
+      }
+    }
+
+    currentAdj = nextAdj;
+    K = C;
+  }
+
+  return finalComm;
+}
+
+/**
  * Louvain modularity maximization on the undirected weighted graph,
  * followed by cluster naming by top-2 degree nodes as in gnl.community_dict(G).
  */
@@ -329,99 +505,32 @@ function computeLouvainClusters(
   adjUndirected: Map<string, Map<string, number>>
 ): ClusterGroup[] {
   const nodeIds = Array.from(nodes.keys());
-  if (nodeIds.length === 0) return [];
+  const N = nodeIds.length;
+  if (N === 0) return [];
 
-  // Calculate total edge weight m (sum of all undirected weights / 2)
-  let m2 = 0; // 2 * m
-  const kWeight = new Map<string, number>();
-  for (const u of nodeIds) {
-    let wSum = 0;
+  const idToIdx = new Map<string, number>();
+  nodeIds.forEach((id, i) => idToIdx.set(id, i));
+
+  const indexedAdj: Map<number, number>[] = Array.from({ length: N }, () => new Map());
+  for (let i = 0; i < N; i++) {
+    const u = nodeIds[i];
     const nbrs = adjUndirected.get(u);
     if (nbrs) {
-      for (const w of nbrs.values()) {
-        wSum += w;
-      }
-    }
-    kWeight.set(u, wSum);
-    m2 += wSum;
-  }
-
-  if (m2 === 0) {
-    // Fallback if no edges
-    const words = nodeIds.slice();
-    return [
-      {
-        id: 0,
-        label: words.slice(0, 2).join('-'),
-        color: CLUSTER_COLORS[0],
-        words,
-      },
-    ];
-  }
-
-  // Initialize each node in its own community
-  const commOf = new Map<string, number>();
-  const sigmaTot = new Map<number, number>();
-  nodeIds.forEach((u, idx) => {
-    commOf.set(u, idx);
-    sigmaTot.set(idx, kWeight.get(u)!);
-  });
-
-  // Iterative local moving phase (Louvain Phase 1 with multiple passes)
-  let improved = true;
-  let iter = 0;
-  while (improved && iter < 25) {
-    improved = false;
-    iter++;
-
-    for (const u of nodeIds) {
-      const cOld = commOf.get(u)!;
-      const ku = kWeight.get(u)!;
-
-      // Remove u from its current community
-      sigmaTot.set(cOld, (sigmaTot.get(cOld) ?? 0) - ku);
-      commOf.set(u, -1);
-
-      // Compute weights from u to neighboring communities
-      const commWeights = new Map<number, number>();
-      commWeights.set(cOld, 0);
-      const nbrs = adjUndirected.get(u);
-      if (nbrs) {
-        for (const [v, w] of nbrs.entries()) {
-          const cv = commOf.get(v)!;
-          if (cv >= 0) {
-            commWeights.set(cv, (commWeights.get(cv) ?? 0) + w);
-          }
-        }
-      }
-
-      let bestComm = cOld;
-      let bestGain = -Infinity;
-
-      for (const [cCand, kIn] of commWeights.entries()) {
-        const tot = sigmaTot.get(cCand) ?? 0;
-        // Modularity gain delta Q (up to positive factor)
-        const gain = kIn - (tot * ku) / m2;
-        if (gain > bestGain + 1e-12) {
-          bestGain = gain;
-          bestComm = cCand;
-        }
-      }
-
-      commOf.set(u, bestComm);
-      sigmaTot.set(bestComm, (sigmaTot.get(bestComm) ?? 0) + ku);
-      if (bestComm !== cOld) {
-        improved = true;
+      for (const [v, w] of nbrs.entries()) {
+        const j = idToIdx.get(v);
+        if (j !== undefined) indexedAdj[i].set(j, w);
       }
     }
   }
+
+  const partition = runMultilevelLouvain(indexedAdj);
 
   // Group nodes by community
   const rawGroups = new Map<number, string[]>();
-  for (const u of nodeIds) {
-    const c = commOf.get(u)!;
+  for (let i = 0; i < N; i++) {
+    const c = partition[i];
     if (!rawGroups.has(c)) rawGroups.set(c, []);
-    rawGroups.get(c)!.push(u);
+    rawGroups.get(c)!.push(nodeIds[i]);
   }
 
   // Sort nodes inside each community by total degree in G (descending), matching gnl.community_dict(G)
@@ -677,4 +786,299 @@ export function findAllSimplePaths(
   dfs(s, 1);
   results.sort((a, b) => a.length - b.length);
   return results;
+}
+
+/**
+ * Dual Graph (Line Graph) + Louvain + Attachment algorithm from Yoonsen/dual_graphs:
+ * 1. Build undirected line graph Gd where each undirected edge e = {u, v} is a dual node,
+ *    and two dual nodes are connected if they share a vertex in G.
+ * 2. Run Louvain clustering on Gd and project each dual cluster back to its set of words.
+ * 3. Attach dual clusters to original Louvain clusters ('best_overlap' or 'threshold').
+ * 4. Order words in each overlapping cluster by degree centrality in G (format_clusters_by_centrality),
+ *    name each cluster after its top-2 most central words, and compute Greedy Set Cover.
+ */
+export function computeOverlapAnalysis(
+  nodes: Map<string, GraphNode>,
+  adjUndirected: Map<string, Map<string, number>>,
+  origClusters: ClusterGroup[],
+  cliques: CliqueGroup[],
+  strategy: 'best_overlap' | 'threshold' = 'best_overlap',
+  jaccardThreshold: number = 0.25
+): OverlapAnalysis {
+  // 1. Extract unique undirected edges in sorted word order (matching build_cooccurrence_from_coordinations)
+  const sortedNodeIds = Array.from(nodes.keys()).sort();
+  const wordToIdx = new Map<string, number>();
+  sortedNodeIds.forEach((w, i) => wordToIdx.set(w, i));
+
+  const dualNodes: [string, string][] = [];
+  const nodeToDualEdges = new Map<string, number[]>();
+
+  for (let i = 0; i < sortedNodeIds.length; i++) {
+    const u = sortedNodeIds[i];
+    const nbrs = adjUndirected.get(u);
+    if (!nbrs) continue;
+    const sortedNbrs = Array.from(nbrs.keys()).sort();
+    for (const v of sortedNbrs) {
+      const j = wordToIdx.get(v) ?? -1;
+      if (i < j) {
+        const edgeId = dualNodes.length;
+        dualNodes.push([u, v]);
+        if (!nodeToDualEdges.has(u)) nodeToDualEdges.set(u, []);
+        if (!nodeToDualEdges.has(v)) nodeToDualEdges.set(v, []);
+        nodeToDualEdges.get(u)!.push(edgeId);
+        nodeToDualEdges.get(v)!.push(edgeId);
+      }
+    }
+  }
+
+  const totalNodes = Math.max(1, nodes.size);
+  const k3Cliques = cliques.filter((c) => c.k === 3);
+  const cpmCoveredSet = new Set<string>();
+  let cpmSumMemberships = 0;
+  for (const cg of k3Cliques) {
+    cpmSumMemberships += cg.words.length;
+    for (const w of cg.words) cpmCoveredSet.add(w);
+  }
+  const cpmCoveredNodes = cpmCoveredSet.size;
+  const cpmCoveragePercentage = (100 * cpmCoveredNodes) / totalNodes;
+  const cpmMeanClustersPerNode = cpmSumMemberships / totalNodes;
+
+  const M = dualNodes.length;
+  if (M === 0 || origClusters.length === 0) {
+    return {
+      clusters: [],
+      setCoverCount: 0,
+      dualNodeCount: 0,
+      dualEdgeCount: 0,
+      dualClusterCount: 0,
+      nodesWithOverlap: 0,
+      overlapPercentage: 0,
+      meanClustersPerNode: 0,
+      maxClustersPerNode: 0,
+      nodeToClusters: new Map(),
+      bridgeWords: [],
+      cpmCoveredNodes,
+      cpmCoveragePercentage,
+      cpmMeanClustersPerNode,
+    };
+  }
+
+  // 2. Build line graph adjacency list (unweighted, matching build_dual_graph in dual_graph_clustering.py)
+  const dualAdj: Map<number, number>[] = Array.from({ length: M }, () => new Map());
+  let dualEdgeCount = 0;
+
+  for (const u of sortedNodeIds) {
+    const incidentEdges = nodeToDualEdges.get(u);
+    if (!incidentEdges) continue;
+    const len = incidentEdges.length;
+    for (let i = 0; i < len; i++) {
+      const e1 = incidentEdges[i];
+      for (let j = i + 1; j < len; j++) {
+        const e2 = incidentEdges[j];
+        if (!dualAdj[e1].has(e2)) {
+          dualAdj[e1].set(e2, 1);
+          dualAdj[e2].set(e1, 1);
+          dualEdgeCount++;
+        }
+      }
+    }
+  }
+
+  // 3. Run multi-level Louvain modularity optimization on the dual graph Gd
+  const commOfDual = runMultilevelLouvain(dualAdj);
+
+  // Map dual clusters to sets of original word nodes
+  const dualClusterMap = new Map<number, Set<string>>();
+  for (let edgeId = 0; edgeId < M; edgeId++) {
+    const dc = commOfDual[edgeId];
+    if (!dualClusterMap.has(dc)) dualClusterMap.set(dc, new Set());
+    const [u, v] = dualNodes[edgeId];
+    dualClusterMap.get(dc)!.add(u);
+    dualClusterMap.get(dc)!.add(v);
+  }
+
+  const dualClusters = Array.from(dualClusterMap.values());
+
+  const intersectCount = (setA: Set<string>, setB: Set<string>): number => {
+    let inter = 0;
+    for (const item of setA) {
+      if (setB.has(item)) inter++;
+    }
+    return inter;
+  };
+
+  // 4. Match & attach dual clusters to original clusters (match_clusters_with_overlap)
+  const rawOverlapClusters: {
+    orig: ClusterGroup;
+    overlapCount: number;
+    jaccardScore: number;
+    words: string[];
+    addedWords: string[];
+  }[] = [];
+
+  for (const orig of origClusters) {
+    const origSet = new Set(orig.words);
+    const combinedSet = new Set(orig.words);
+    let bestOverlap = 0;
+    let bestJaccard = 0;
+
+    if (strategy === 'best_overlap') {
+      let bestDual: Set<string> | null = null;
+
+      for (const dSet of dualClusters) {
+        const inter = intersectCount(origSet, dSet);
+        if (inter === 0) continue;
+        const union = origSet.size + dSet.size - inter;
+        const jacc = union > 0 ? inter / union : 0;
+
+        if (inter > bestOverlap || (inter === bestOverlap && jacc > bestJaccard)) {
+          bestOverlap = inter;
+          bestJaccard = jacc;
+          bestDual = dSet;
+        }
+      }
+
+      if (bestDual) {
+        for (const w of bestDual) combinedSet.add(w);
+      }
+    } else {
+      // 'threshold' strategy: attach all dual clusters with Jaccard >= jaccardThreshold
+      for (const dSet of dualClusters) {
+        const inter = intersectCount(origSet, dSet);
+        if (inter === 0) continue;
+        const union = origSet.size + dSet.size - inter;
+        const jacc = union > 0 ? inter / union : 0;
+        if (jacc > bestJaccard) {
+          bestJaccard = jacc;
+          bestOverlap = inter;
+        }
+        if (jacc >= jaccardThreshold) {
+          for (const w of dSet) combinedSet.add(w);
+        }
+      }
+    }
+
+    // 5. Sort words by undirected degree in G (matching format_clusters_by_centrality(G, ..., 'degree'))
+    const sortedWords = Array.from(combinedSet).sort((a, b) => {
+      const degDiff =
+        (nodes.get(b)?.undirectedDegree ?? 0) - (nodes.get(a)?.undirectedDegree ?? 0);
+      if (degDiff !== 0) return degDiff;
+      const totDiff = (nodes.get(b)?.totalDegree ?? 0) - (nodes.get(a)?.totalDegree ?? 0);
+      return totDiff !== 0 ? totDiff : a.localeCompare(b, 'nb');
+    });
+
+    const addedWords = sortedWords.filter((w) => !origSet.has(w));
+    rawOverlapClusters.push({
+      orig,
+      overlapCount: bestOverlap,
+      jaccardScore: bestJaccard,
+      words: sortedWords,
+      addedWords,
+    });
+  }
+
+  // Sort clusters descending by size (matching format_clusters_by_centrality)
+  rawOverlapClusters.sort((a, b) => b.words.length - a.words.length);
+
+  const usedLabels = new Set<string>();
+  const overlapClusters: OverlapClusterGroup[] = rawOverlapClusters.map((rc, idx) => {
+    let baseLabel = rc.words.slice(0, 2).join('-');
+    let label = baseLabel;
+    let suffix = 2;
+    while (usedLabels.has(label)) {
+      label = rc.words[2] ? `${baseLabel}-${rc.words[2]}` : `${baseLabel} (${suffix++})`;
+      if (usedLabels.has(label)) {
+        label = `${baseLabel} (${suffix++})`;
+      }
+    }
+    usedLabels.add(label);
+
+    return {
+      id: idx,
+      label,
+      origLabel: rc.orig.label,
+      overlapCount: rc.overlapCount,
+      jaccardScore: rc.jaccardScore,
+      color: rc.orig.color,
+      words: rc.words,
+      addedWords: rc.addedWords,
+      inSetCover: false,
+      setCoverNewlyAdded: 0,
+    };
+  });
+
+  // 6. Compute Greedy Set Cover (Section 5 of drodling_grafer.ipynb)
+  const uncovered = new Set<string>(nodes.keys());
+  let setCoverCount = 0;
+
+  while (uncovered.size > 0) {
+    let bestCluster: OverlapClusterGroup | null = null;
+    let bestNewNodes: string[] = [];
+
+    for (const oc of overlapClusters) {
+      if (oc.inSetCover) continue;
+      const newNodes = oc.words.filter((w) => uncovered.has(w));
+      if (newNodes.length > bestNewNodes.length) {
+        bestNewNodes = newNodes;
+        bestCluster = oc;
+      }
+    }
+
+    if (!bestCluster || bestNewNodes.length === 0) break;
+    bestCluster.inSetCover = true;
+    bestCluster.setCoverNewlyAdded = bestNewNodes.length;
+    setCoverCount++;
+    for (const w of bestNewNodes) uncovered.delete(w);
+  }
+
+  // 7. Compute node-to-clusters mapping and overlap statistics
+  const nodeToClusters = new Map<string, string[]>();
+  for (const id of nodes.keys()) {
+    nodeToClusters.set(id, []);
+  }
+  for (const oc of overlapClusters) {
+    for (const w of oc.words) {
+      nodeToClusters.get(w)?.push(oc.label);
+    }
+  }
+
+  let nodesWithOverlap = 0;
+  let sumClusters = 0;
+  let maxClustersPerNode = 0;
+  const bridgeWords: { word: string; clusters: string[] }[] = [];
+
+  for (const [word, clList] of nodeToClusters.entries()) {
+    const count = clList.length;
+    sumClusters += count;
+    if (count > maxClustersPerNode) maxClustersPerNode = count;
+    if (count > 1) {
+      nodesWithOverlap++;
+      bridgeWords.push({ word, clusters: clList });
+    }
+  }
+
+  bridgeWords.sort((a, b) => {
+    const diff = b.clusters.length - a.clusters.length;
+    if (diff !== 0) return diff;
+    return (
+      (nodes.get(b.word)?.undirectedDegree ?? 0) - (nodes.get(a.word)?.undirectedDegree ?? 0)
+    );
+  });
+
+  return {
+    clusters: overlapClusters,
+    setCoverCount,
+    dualNodeCount: M,
+    dualEdgeCount,
+    dualClusterCount: dualClusters.length,
+    nodesWithOverlap,
+    overlapPercentage: (100 * nodesWithOverlap) / totalNodes,
+    meanClustersPerNode: sumClusters / totalNodes,
+    maxClustersPerNode,
+    nodeToClusters,
+    bridgeWords,
+    cpmCoveredNodes,
+    cpmCoveragePercentage,
+    cpmMeanClustersPerNode,
+  };
 }

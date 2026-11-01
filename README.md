@@ -10,6 +10,9 @@ En moderne Progressive Web App (PWA) basert på Streamlit-appen [`Yoonsen/galaxy
   - Klikk på en node for å inspisere grad, sentralitet, betweenness, eller dobbeltklikk for å åpne ny galakse for ordet.
 - **Clustre (`community_dict`)**:
   - Klientside Louvain-modularitetsoptimalisering der hvert cluster navngis etter de to mest sentrale ordene (f.eks. `frihet-uavhengighet`, `demokrati-folkestyre`).
+- **Overlappsclustre (`dual_graphs_yoonsen` – Linjegraf + Louvain + Attachment)**:
+  - Bygger linjegrafen $L(G)$ der kantene er noder, kjører flernivå-Louvain på både $G$ og $L(G)$, og knytter linjegraf-klynger til de opprinnelige klyngene (`match_clusters_with_overlap` med enten *Beste overlapp* eller *Jaccard-terskel*).
+  - Gir 100 % nodedekning kombinert med naturlig overlapp for polyseme bro-ord, inkludert oversikt over bro-ord, grådig *Set-Cover* og sammenligning mot vanlig Louvain og klikk-perkolasjon.
 - **Klikkstruktur (`kcliques`)**:
   - Eksakt Bron–Kerbosch + $k$-klikk-perkolasjon (`k_clique_communities` for $k \ge 3$) som grupperer tette undergrafer (`3-1`, `4-1`, osv.).
 - **Sentralitetstabell**:

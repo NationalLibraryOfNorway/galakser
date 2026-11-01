@@ -168,6 +168,15 @@
             class="tab-btn"
             role="tab"
             aria-selected="false"
+            data-tab="overlap"
+          >
+            Overlappsclustre
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            role="tab"
+            aria-selected="false"
             data-tab="cliques"
           >
             Klikkstruktur
@@ -213,7 +222,30 @@
             <div id="clusters-container"></div>
           </section>
 
-          <!-- Tab 2: Klikkstruktur -->
+          <!-- Tab 2: Overlappsclustre (Louvain + Linjegraf + Attachment) -->
+          <section id="tab-overlap" class="tab-pane" role="tabpanel" hidden>
+            <div class="overlap-controls">
+              <div class="overlap-intro">
+                <span>
+                  Linjegraf <em>L(G)</em> + Louvain + tilknytning gir 100 % dekning med naturlig
+                  overlapp for polyseme bro-ord.
+                </span>
+              </div>
+              <div class="overlap-strategy-bar">
+                <label for="overlap-strategy-select">Tilknytningsstrategi:</label>
+                <select id="overlap-strategy-select" class="select-control select-sm">
+                  <option value="best_overlap" selected>Beste overlapp (1-til-1 union)</option>
+                  <option value="threshold_020">Jaccard-terskel ≥ 0.20</option>
+                  <option value="threshold_012">Jaccard-terskel ≥ 0.12 (bredere)</option>
+                </select>
+              </div>
+            </div>
+            <div id="overlap-stats-container"></div>
+            <div id="overlap-bridges-container"></div>
+            <div id="overlap-clusters-container"></div>
+          </section>
+
+          <!-- Tab 3: Klikkstruktur -->
           <section id="tab-cliques" class="tab-pane" role="tabpanel" hidden>
             <p style="margin-block-start: 0; font-size: 0.82rem; color: var(--text-muted)">
               k-klikk-samfunn (perkolerte klikker av størrelse k ≥ 3). Klikk for å utheve i grafen.

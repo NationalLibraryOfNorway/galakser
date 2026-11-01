@@ -536,6 +536,108 @@ body {
   background-color: var(--accent-subtle);
 }
 
+.word-pill-added {
+  border-style: dashed;
+  border-color: var(--accent-color);
+  background-color: color-mix(in srgb, var(--accent-subtle) 55%, var(--bg-surface));
+}
+
+.word-pill-bridge {
+  font-weight: 600;
+}
+
+.pill-badge {
+  display: inline-flex;
+  align-items: safe center;
+  justify-content: center;
+  min-inline-size: 1.15rem;
+  padding-inline: 0.28rem;
+  margin-inline-start: 0.28rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background-color: var(--accent-subtle);
+  color: var(--accent-color);
+}
+
+/* Overlap Clusters Tab */
+.overlap-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-block-end: 0.85rem;
+}
+
+.overlap-intro {
+  font-size: 0.81rem;
+  color: var(--text-muted);
+}
+
+.overlap-strategy-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.select-sm {
+  padding-block: 0.32rem;
+  padding-inline: 0.55rem;
+  font-size: 0.8rem;
+}
+
+.overlap-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45rem;
+  margin-block-end: 0.8rem;
+}
+
+.overlap-stat-card {
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+}
+
+.overlap-stat-card span {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.overlap-stat-card strong {
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.overlap-submeta {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-block-end: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: safe center;
+}
+
+.meta-tag {
+  padding: 0.12rem 0.42rem;
+  border-radius: 0.32rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  font-size: 0.71rem;
+}
+
+.meta-tag-accent {
+  border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
 /* Centrality Table */
 .centrality-table {
   inline-size: 100%;

@@ -1,5 +1,6 @@
 import './style.css';
 import {
+  computeOverlapAnalysis,
   CorpusType,
   fetchGalaxyGraph,
   findAllSimplePaths,
@@ -45,6 +46,14 @@ const inspSoloWordBtn = document.getElementById('insp-solo-word-btn') as HTMLBut
 const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
 const clustersContainer = document.getElementById('clusters-container') as HTMLElement;
 const clearHighlightBtn = document.getElementById('clear-highlight-btn') as HTMLButtonElement;
+const overlapStrategySelect = document.getElementById(
+  'overlap-strategy-select'
+) as HTMLSelectElement;
+const overlapStatsContainer = document.getElementById('overlap-stats-container') as HTMLElement;
+const overlapBridgesContainer = document.getElementById('overlap-bridges-container') as HTMLElement;
+const overlapClustersContainer = document.getElementById(
+  'overlap-clusters-container'
+) as HTMLElement;
 const cliquesContainer = document.getElementById('cliques-container') as HTMLElement;
 const centralityTbody = document.getElementById('centrality-tbody') as HTMLElement;
 const centralityHeaders = document.querySelectorAll<HTMLTableCellElement>(
@@ -145,7 +154,12 @@ function updateInspector(node: GraphNode | null) {
   inspector.hidden = false;
   inspDot.style.backgroundColor = node.color;
   inspTitle.textContent = node.id;
-  inspCluster.textContent = `Cluster: ${node.communityLabel || 'Ukjent'}`;
+  const overlapList = currentGraph?.overlap.nodeToClusters.get(node.id) ?? [];
+  if (overlapList.length > 1) {
+    inspCluster.textContent = `Cluster: ${node.communityLabel || 'Ukjent'} · Overlapp (${overlapList.length}): ${overlapList.join(', ')}`;
+  } else {
+    inspCluster.textContent = `Cluster: ${node.communityLabel || 'Ukjent'}`;
+  }
   inspDeg.textContent = `${node.totalDegree} (inn ${node.inDegree} / ut ${node.outDegree})`;
   inspCent.textContent = node.degreeCentrality.toFixed(3);
   inspBetw.textContent = node.betweennessCentrality.toFixed(3);
@@ -196,6 +210,7 @@ function switchTab(tabName: string) {
   });
   const panes: Record<string, HTMLElement | null> = {
     clusters: document.getElementById('tab-clusters'),
+    overlap: document.getElementById('tab-overlap'),
     cliques: document.getElementById('tab-cliques'),
     centrality: document.getElementById('tab-centrality'),
     paths: document.getElementById('tab-paths'),
@@ -210,6 +225,202 @@ tabBtns.forEach((btn) => {
     if (btn.dataset.tab) switchTab(btn.dataset.tab);
   });
 });
+
+function recomputeAndRenderOverlap() {
+  if (!currentGraph) return;
+  const mode = overlapStrategySelect.value;
+  if (mode === 'threshold_020') {
+    currentGraph.overlap = computeOverlapAnalysis(
+      currentGraph.nodes,
+      currentGraph.adjUndirected,
+      currentGraph.clusters,
+      currentGraph.cliques,
+      'threshold',
+      0.2
+    );
+  } else if (mode === 'threshold_012') {
+    currentGraph.overlap = computeOverlapAnalysis(
+      currentGraph.nodes,
+      currentGraph.adjUndirected,
+      currentGraph.clusters,
+      currentGraph.cliques,
+      'threshold',
+      0.12
+    );
+  } else {
+    currentGraph.overlap = computeOverlapAnalysis(
+      currentGraph.nodes,
+      currentGraph.adjUndirected,
+      currentGraph.clusters,
+      currentGraph.cliques,
+      'best_overlap',
+      0.25
+    );
+  }
+  renderOverlapClusters(currentGraph);
+  if (currentSelectedNode) updateInspector(currentSelectedNode);
+}
+
+overlapStrategySelect.addEventListener('change', () => {
+  recomputeAndRenderOverlap();
+});
+
+// Render Overlappsclustre Tab (Dual Graph / Line Graph + Louvain + Attachment)
+function renderOverlapClusters(graph: GalaxyGraph) {
+  overlapStatsContainer.innerHTML = '';
+  overlapBridgesContainer.innerHTML = '';
+  overlapClustersContainer.innerHTML = '';
+
+  const ov = graph.overlap;
+  if (ov.clusters.length === 0) {
+    overlapClustersContainer.innerHTML = `<p style="color: var(--text-muted)">Ingen overlappsclustre funnet.</p>`;
+    return;
+  }
+
+  // 1. Summary stats & comparison with Louvain / Clique Percolation
+  const statsGrid = document.createElement('div');
+  statsGrid.className = 'overlap-stats-grid';
+  statsGrid.innerHTML = `
+    <div class="overlap-stat-card" title="Andel noder som tilhører minst 2 clustre (100 % total dekning)">
+      <span>Overlapp (100 % dekning)</span>
+      <strong>${ov.overlapPercentage.toFixed(1)} % (${ov.nodesWithOverlap}/${graph.nodes.size})</strong>
+    </div>
+    <div class="overlap-stat-card" title="Gjennomsnittlig og maksimalt antall clustre per ord">
+      <span>Snitt / maks clustre</span>
+      <strong>${ov.meanClustersPerNode.toFixed(2)} / ${ov.maxClustersPerNode}</strong>
+    </div>
+    <div class="overlap-stat-card" title="Linjegraf L(G): kanter som noder og Louvain-kantklynger">
+      <span>Linjegraf L(G)</span>
+      <strong>${ov.dualNodeCount} kanter · ${ov.dualClusterCount} klynger</strong>
+    </div>
+  `;
+
+  const cmpLine = document.createElement('div');
+  cmpLine.className = 'overlap-submeta';
+  cmpLine.style.marginBlockEnd = '0.8rem';
+  cmpLine.innerHTML = `
+    <span class="meta-tag" title="Vanlig Louvain har 100 % dekning men 0 % overlapp">Louvain: 100 % dekning (1.00/node)</span>
+    <span class="meta-tag" title="Klikk-perkolasjon (k=3) mister noder utenfor trekanter">Klikk k=3: ${ov.cpmCoveragePercentage.toFixed(1)} % dekning (${ov.cpmCoveredNodes}/${graph.nodes.size})</span>
+    <span class="meta-tag meta-tag-accent" title="Minste kolleksjon av overlappsclustre som dekker 100 % av nodene">Set-cover: ${ov.setCoverCount} av ${ov.clusters.length} clustre</span>
+  `;
+
+  overlapStatsContainer.append(statsGrid, cmpLine);
+
+  // 2. Bridge words (polysemous words belonging to >= 2 clusters)
+  if (ov.bridgeWords.length > 0) {
+    const bridgeCard = document.createElement('div');
+    bridgeCard.className = 'group-card';
+
+    const bHeader = document.createElement('div');
+    bHeader.className = 'group-header';
+
+    const bTitle = document.createElement('div');
+    bTitle.className = 'group-title';
+    bTitle.textContent = 'Bro-ord (polyseme ord i ≥ 2 clustre)';
+    bTitle.title = 'Klikk for å utheve alle bro-ord i grafen';
+    bTitle.addEventListener('click', () => {
+      document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
+      bridgeCard.classList.add('active');
+      visualizer.highlightSubset(ov.bridgeWords.map((b) => b.word));
+      clearHighlightBtn.hidden = false;
+    });
+
+    const bCount = document.createElement('span');
+    bCount.className = 'group-count';
+    bCount.textContent = `${ov.bridgeWords.length} bro-ord`;
+    bHeader.append(bTitle, bCount);
+
+    const bPills = document.createElement('div');
+    bPills.className = 'word-pill-list';
+
+    for (const item of ov.bridgeWords) {
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'word-pill word-pill-bridge';
+      pill.title = `Tilhører ${item.clusters.length} clustre: ${item.clusters.join(', ')}`;
+      pill.innerHTML = `${item.word}<span class="pill-badge">${item.clusters.length}</span>`;
+      pill.addEventListener('click', () => {
+        visualizer.highlightSubset(null);
+        clearHighlightBtn.hidden = true;
+        visualizer.selectNodeById(item.word);
+      });
+      bPills.appendChild(pill);
+    }
+
+    bridgeCard.append(bHeader, bPills);
+    overlapBridgesContainer.appendChild(bridgeCard);
+  }
+
+  // 3. Overlapping Cluster Cards
+  for (const cluster of ov.clusters) {
+    const card = document.createElement('div');
+    card.className = 'group-card';
+    const addedSet = new Set(cluster.addedWords);
+
+    const header = document.createElement('div');
+    header.className = 'group-header';
+
+    const title = document.createElement('div');
+    title.className = 'group-title';
+    title.innerHTML = `<span class="color-dot" style="background-color: ${cluster.color}"></span><span>${cluster.label}</span>`;
+    title.title = 'Klikk for å utheve dette overlappsclusteret i grafen';
+    title.addEventListener('click', () => {
+      document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
+      card.classList.add('active');
+      visualizer.highlightSubset(cluster.words);
+      clearHighlightBtn.hidden = false;
+    });
+
+    const count = document.createElement('span');
+    count.className = 'group-count';
+    count.textContent = `${cluster.words.length} ord`;
+    header.append(title, count);
+
+    const submeta = document.createElement('div');
+    submeta.className = 'overlap-submeta';
+    const addedTag =
+      cluster.addedWords.length > 0
+        ? `<span class="meta-tag meta-tag-accent" title="Nye grense-/bro-ord tilknyttet fra linjegrafen">+${cluster.addedWords.length} tilknyttet via L(G)</span>`
+        : `<span class="meta-tag">0 ekstra fra L(G)</span>`;
+    const coverTag = cluster.inSetCover
+      ? `<span class="meta-tag" title="Inngår i grådig set-cover og dekker ${cluster.setCoverNewlyAdded} nye noder">Set-cover (+${cluster.setCoverNewlyAdded})</span>`
+      : '';
+    submeta.innerHTML = `
+      <span class="meta-tag" title="Opprinnelig Louvain-cluster før linjegraf-tilknytning">Kjerne: ${cluster.origLabel}</span>
+      ${addedTag}
+      ${coverTag}
+    `;
+
+    const pillList = document.createElement('div');
+    pillList.className = 'word-pill-list';
+
+    for (const word of cluster.words) {
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      const memberships = ov.nodeToClusters.get(word) ?? [];
+      const isAdded = addedSet.has(word);
+      const isBridge = memberships.length > 1;
+
+      pill.className = `word-pill${isAdded ? ' word-pill-added' : ''}${isBridge ? ' word-pill-bridge' : ''}`;
+      if (isBridge) {
+        pill.title = `${isAdded ? 'Tilknyttet via linjegraf · ' : ''}Med i ${memberships.length} clustre: ${memberships.join(', ')}`;
+        pill.innerHTML = `${word}<span class="pill-badge">${memberships.length}</span>`;
+      } else {
+        pill.textContent = word;
+      }
+
+      pill.addEventListener('click', () => {
+        visualizer.highlightSubset(null);
+        clearHighlightBtn.hidden = true;
+        visualizer.selectNodeById(word);
+      });
+      pillList.appendChild(pill);
+    }
+
+    card.append(header, submeta, pillList);
+    overlapClustersContainer.appendChild(card);
+  }
+}
 
 // Render Clusters Tab
 function renderClusters(graph: GalaxyGraph) {
@@ -570,6 +781,7 @@ async function loadGalaxy() {
     visualizer.setGraph(graph);
 
     renderClusters(graph);
+    recomputeAndRenderOverlap();
     renderCliques(graph);
     renderCentralityTable(graph);
     initPathsTab(graph);
