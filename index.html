@@ -247,9 +247,28 @@
 
           <!-- Tab 3: Klikkstruktur -->
           <section id="tab-cliques" class="tab-pane" role="tabpanel" hidden>
-            <p style="margin-block-start: 0; font-size: 0.82rem; color: var(--text-muted)">
-              k-klikk-samfunn (perkolerte klikker av størrelse k ≥ 3). Klikk for å utheve i grafen.
-            </p>
+            <div class="cliques-toolbar">
+              <span style="font-size: 0.81rem; color: var(--text-muted)">
+                k-klikk-samfunn (k ≥ 3) ordnet etter inklusjon (3-klikker splittes i 4-klikker osv.).
+              </span>
+              <div class="view-toggle" role="group" aria-label="Visningsmodus for klikkstruktur">
+                <button
+                  type="button"
+                  id="cliques-view-tree-btn"
+                  class="btn btn-sm view-toggle-btn active"
+                >
+                  Hierarkisk tre
+                </button>
+                <button
+                  type="button"
+                  id="cliques-view-list-btn"
+                  class="btn btn-sm view-toggle-btn"
+                >
+                  Listevisning
+                </button>
+              </div>
+            </div>
+            <div id="cliques-tree-diagram" class="cliques-tree-stage"></div>
             <div id="cliques-container"></div>
           </section>
 

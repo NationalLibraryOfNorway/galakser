@@ -727,3 +727,160 @@ body {
   color: var(--text-muted);
   font-size: 0.75rem;
 }
+
+/* Cliques Hierarchical Tree & View Toggle */
+.cliques-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-block-end: 0.75rem;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border-radius: 0.5rem;
+  padding: 0.15rem;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  gap: 0.15rem;
+}
+
+.view-toggle-btn {
+  border-color: transparent;
+  background-color: transparent;
+  font-size: 0.75rem;
+  padding-block: 0.25rem;
+  padding-inline: 0.55rem;
+}
+
+.view-toggle-btn.active {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+  color: var(--accent-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.cliques-tree-stage {
+  margin-block-end: 0.85rem;
+  padding: 0.65rem;
+  border-radius: 0.65rem;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.cliques-tree-stage[hidden] {
+  display: none;
+}
+
+.clique-tree-svg {
+  display: block;
+  min-inline-size: 100%;
+  block-size: auto;
+}
+
+.tree-link {
+  fill: none;
+  stroke: var(--border-color);
+  stroke-width: 1.75;
+  transition: stroke 0.15s ease;
+}
+
+.tree-link-active {
+  stroke: var(--accent-color);
+  stroke-width: 2.25;
+}
+
+.tree-node-group {
+  cursor: pointer;
+}
+
+.tree-node-rect {
+  fill: var(--bg-surface);
+  stroke: var(--border-color);
+  stroke-width: 1.4;
+  transition: stroke 0.15s ease, fill 0.15s ease;
+}
+
+.tree-node-group:hover .tree-node-rect,
+.tree-node-group.active .tree-node-rect {
+  stroke: var(--accent-color);
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--accent-subtle) 45%, var(--bg-surface));
+}
+
+.tree-node-title {
+  fill: var(--text-main);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.tree-node-sub {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.tree-level-label {
+  fill: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.tree-toggle-circle {
+  fill: var(--bg-elevated);
+  stroke: var(--border-color);
+  stroke-width: 1.2;
+}
+
+.tree-toggle-circle:hover {
+  stroke: var(--accent-color);
+}
+
+.tree-toggle-text {
+  fill: var(--text-main);
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  user-select: none;
+}
+
+/* Expandable Nested Clique Cards */
+.clique-tree-branch {
+  margin-block-end: 0.65rem;
+}
+
+.clique-tree-children {
+  margin-inline-start: 0.85rem;
+  padding-inline-start: 0.75rem;
+  border-inline-start: 2px solid var(--border-color);
+  margin-block-start: 0.45rem;
+}
+
+.clique-tree-children[hidden] {
+  display: none;
+}
+
+.clique-card-actions {
+  display: inline-flex;
+  align-items: safe center;
+  gap: 0.35rem;
+}
+
+.clique-expand-btn {
+  padding-block: 0.15rem;
+  padding-inline: 0.45rem;
+  font-size: 0.72rem;
+  border-radius: 0.35rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.clique-expand-btn:hover {
+  border-color: var(--accent-color);
+  color: var(--text-main);
+}

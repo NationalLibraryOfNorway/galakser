@@ -32,7 +32,12 @@ export interface CliqueGroup {
   key: string; // e.g. "3-1", "4-1"
   k: number;
   index: number;
+  label: string; // Top-2 central words, e.g. "is-snø"
+  distinctWord?: string; // 3rd central word when label matches parent
+  color: string;
   words: string[];
+  parentKey: string | null;
+  childrenKeys: string[];
 }
 
 export interface OverlapClusterGroup {
@@ -215,8 +220,8 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
   // Detect Louvain communities & name clusters like gnl.community_dict(G)
   const clusters = computeLouvainClusters(nodes, adjUndirected);
 
-  // Compute k-clique communities like gnl.kcliques(G.to_undirected())
-  const cliques = computeKCliqueCommunities(nodeIds, adjUndirected);
+  // Compute k-clique communities & inclusion tree like gnl.kcliques + gnl.subsetgraph
+  const cliques = computeKCliqueCommunities(nodes, adjUndirected);
 
   // Compute Overlapping Clusters via Line Graph (Dual Graph) + Louvain + Attachment
   const overlap = computeOverlapAnalysis(
@@ -575,12 +580,14 @@ function computeLouvainClusters(
 
 /**
  * Finds all maximal cliques using Bron-Kerbosch with pivoting, then computes
- * k-clique communities (percolation) for k = 3, 4, ... matching gnl.kcliques(G.to_undirected()).
+ * k-clique communities (percolation) for k = 3, 4, ... matching gnl.kcliques(G.to_undirected()),
+ * names each clique by its top-2 central words, and builds the subset inclusion tree (gnl.subsetgraph).
  */
 function computeKCliqueCommunities(
-  nodeIds: string[],
+  nodes: Map<string, GraphNode>,
   adjUndirected: Map<string, Map<string, number>>
 ): CliqueGroup[] {
+  const nodeIds = Array.from(nodes.keys());
   const neighborSets = new Map<string, Set<string>>();
   for (const u of nodeIds) {
     neighborSets.set(u, new Set(adjUndirected.get(u)?.keys() ?? []));
@@ -651,7 +658,7 @@ function computeKCliqueCommunities(
 
     const m = eligible.length;
     const visited = new Uint8Array(m);
-    let compIdx = 1;
+    const levelCommunities: string[][] = [];
 
     for (let i = 0; i < m; i++) {
       if (visited[i]) continue;
@@ -682,15 +689,91 @@ function computeKCliqueCommunities(
         }
       }
 
-      const words = Array.from(communityNodes).sort((a, b) => a.localeCompare(b, 'nb'));
+      // Sort words descending by centrality in G (matching gnl.subsetgraph / format_clusters_by_centrality)
+      const words = Array.from(communityNodes).sort((a, b) => {
+        const na = nodes.get(a);
+        const nb = nodes.get(b);
+        const degDiff = (nb?.undirectedDegree ?? 0) - (na?.undirectedDegree ?? 0);
+        if (degDiff !== 0) return degDiff;
+        const closeDiff = (nb?.closenessCentrality ?? 0) - (na?.closenessCentrality ?? 0);
+        if (Math.abs(closeDiff) > 1e-9) return closeDiff;
+        const totDiff = (nb?.totalDegree ?? 0) - (na?.totalDegree ?? 0);
+        return totDiff !== 0 ? totDiff : a.localeCompare(b, 'nb');
+      });
+
+      levelCommunities.push(words);
+    }
+
+    // Order communities within level k by size descending
+    levelCommunities.sort((a, b) => b.length - a.length);
+
+    levelCommunities.forEach((words, idx) => {
+      const compIdx = idx + 1;
+      const label = words.slice(0, 2).join('-');
+      // Pick dominant color from the most central non-ego word or top word
+      const colorWord = words.length > 1 ? words[1] : words[0];
+      const color =
+        nodes.get(colorWord)?.color ?? nodes.get(words[0])?.color ?? CLUSTER_COLORS[0];
+
       cliqueGroups.push({
         key: `${k}-${compIdx}`,
         k,
         index: compIdx,
+        label,
+        color,
         words,
+        parentKey: null,
+        childrenKeys: [],
       });
-      compIdx++;
+    });
+  }
+
+  // Build hierarchical subset inclusion tree (matching gnl.subsetgraph(comms, centrals, labels=2))
+  const byKey = new Map<string, CliqueGroup>();
+  const wordSets = new Map<string, Set<string>>();
+  for (const cg of cliqueGroups) {
+    byKey.set(cg.key, cg);
+    wordSets.set(cg.key, new Set(cg.words));
+  }
+
+  // Process from highest k down to k=3, finding immediate superset at a lower k
+  const descByK = [...cliqueGroups].sort((a, b) => b.k - a.k || a.index - b.index);
+  for (let i = 0; i < descByK.length; i++) {
+    const child = descByK[i];
+    const childSet = wordSets.get(child.key)!;
+
+    for (let j = i + 1; j < descByK.length; j++) {
+      const cand = descByK[j];
+      if (cand.k >= child.k) continue;
+      const candSet = wordSets.get(cand.key)!;
+
+      let isSubset = true;
+      for (const w of childSet) {
+        if (!candSet.has(w)) {
+          isSubset = false;
+          break;
+        }
+      }
+
+      if (isSubset) {
+        child.parentKey = cand.key;
+        cand.childrenKeys.push(child.key);
+        if (child.label === cand.label && child.words.length >= 3) {
+          child.distinctWord =
+            child.words.slice(2).find((w) => w !== cand.distinctWord) ?? child.words[2];
+        }
+        break;
+      }
     }
+  }
+
+  // Keep childrenKeys sorted in natural order (e.g. 4-1, 4-2, 4-3)
+  for (const cg of cliqueGroups) {
+    cg.childrenKeys.sort((a, b) => {
+      const ca = byKey.get(a)!;
+      const cb = byKey.get(b)!;
+      return ca.k - cb.k || ca.index - cb.index;
+    });
   }
 
   return cliqueGroups;

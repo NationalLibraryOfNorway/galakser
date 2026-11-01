@@ -1,5 +1,6 @@
 import './style.css';
 import {
+  CliqueGroup,
   computeOverlapAnalysis,
   CorpusType,
   fetchGalaxyGraph,
@@ -54,6 +55,9 @@ const overlapBridgesContainer = document.getElementById('overlap-bridges-contain
 const overlapClustersContainer = document.getElementById(
   'overlap-clusters-container'
 ) as HTMLElement;
+const cliquesViewTreeBtn = document.getElementById('cliques-view-tree-btn') as HTMLButtonElement;
+const cliquesViewListBtn = document.getElementById('cliques-view-list-btn') as HTMLButtonElement;
+const cliquesTreeDiagram = document.getElementById('cliques-tree-diagram') as HTMLElement;
 const cliquesContainer = document.getElementById('cliques-container') as HTMLElement;
 const centralityTbody = document.getElementById('centrality-tbody') as HTMLElement;
 const centralityHeaders = document.querySelectorAll<HTMLTableCellElement>(
@@ -72,6 +76,10 @@ let currentSelectedNode: GraphNode | null = null;
 let sortField: 'id' | 'degreeCentrality' | 'betweennessCentrality' | 'closenessCentrality' =
   'degreeCentrality';
 let sortAsc = false;
+let cliquesViewMode: 'tree' | 'list' = 'tree';
+const collapsedCliqueKeys = new Set<string>();
+const collapsedWordsCliqueKeys = new Set<string>();
+let activeCliqueKey: string | null = null;
 
 // Initialize Visualizer
 const visualizer = new GraphVisualizer(canvas, {
@@ -142,7 +150,11 @@ exportPngBtn.addEventListener('click', () => {
 clearHighlightBtn.addEventListener('click', () => {
   visualizer.highlightSubset(null);
   clearHighlightBtn.hidden = true;
+  activeCliqueKey = null;
   document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
+  document
+    .querySelectorAll('.tree-node-group.active')
+    .forEach((el) => el.classList.remove('active'));
 });
 
 // Node Inspector Actions
@@ -475,55 +487,390 @@ function renderClusters(graph: GalaxyGraph) {
   }
 }
 
-// Render Cliques Tab
+cliquesViewTreeBtn.addEventListener('click', () => {
+  cliquesViewMode = 'tree';
+  cliquesViewTreeBtn.classList.add('active');
+  cliquesViewListBtn.classList.remove('active');
+  if (currentGraph) renderCliques(currentGraph);
+});
+
+cliquesViewListBtn.addEventListener('click', () => {
+  cliquesViewMode = 'list';
+  cliquesViewListBtn.classList.add('active');
+  cliquesViewTreeBtn.classList.remove('active');
+  if (currentGraph) renderCliques(currentGraph);
+});
+
+function formatCliqueDisplayTitle(clique: CliqueGroup): string {
+  const extra = clique.distinctWord ? ` · ${clique.distinctWord}` : '';
+  return `${clique.key} · ${clique.label}${extra}`;
+}
+
+function selectAndHighlightClique(clique: CliqueGroup) {
+  activeCliqueKey = clique.key;
+  visualizer.highlightSubset(clique.words);
+  clearHighlightBtn.hidden = false;
+
+  document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
+  document
+    .querySelectorAll(`.group-card[data-clique-key="${clique.key}"]`)
+    .forEach((el) => el.classList.add('active'));
+  document
+    .querySelectorAll('.tree-node-group.active')
+    .forEach((el) => el.classList.remove('active'));
+  document
+    .querySelectorAll(`.tree-node-group[data-clique-key="${clique.key}"]`)
+    .forEach((el) => el.classList.add('active'));
+}
+
+/**
+ * Renders a strict hierarchical inclusion tree diagram (SVG) matching gnl.subsetgraph + gnl.tree_pos:
+ * Root 3-cliques at the top split downward into 4-cliques, 5-cliques, etc.
+ * Nodes with children can be expanded/collapsed directly in the diagram.
+ */
+function renderCliqueTreeDiagram(graph: GalaxyGraph, byKey: Map<string, CliqueGroup>) {
+  cliquesTreeDiagram.innerHTML = '';
+  if (cliquesViewMode !== 'tree' || graph.cliques.length === 0) {
+    cliquesTreeDiagram.hidden = true;
+    return;
+  }
+  cliquesTreeDiagram.hidden = false;
+
+  const roots = graph.cliques.filter((c) => c.parentKey === null);
+  const minK = Math.min(...graph.cliques.map((c) => c.k));
+  const maxK = Math.max(...graph.cliques.map((c) => c.k));
+
+  const nodeW = 152;
+  const nodeH = 44;
+  const gapX = 16;
+  const levelH = 74;
+  const leftAxisW = 46;
+  const padTop = 14;
+  const padBottom = 18;
+
+  const positions = new Map<string, { x: number; y: number }>();
+  const visibleNodes: CliqueGroup[] = [];
+  const visibleEdges: { parent: CliqueGroup; child: CliqueGroup }[] = [];
+
+  let nextLeafX = leftAxisW + nodeW / 2 + 6;
+
+  // Post-order bottom-up horizontal layout (matching tree_pos in gnl.py)
+  function layoutSubtree(clique: CliqueGroup): number {
+    visibleNodes.push(clique);
+    const y = padTop + (clique.k - minK) * levelH + nodeH / 2;
+    const isCollapsed = collapsedCliqueKeys.has(clique.key);
+    const children = isCollapsed
+      ? []
+      : clique.childrenKeys.map((k) => byKey.get(k)).filter((c): c is CliqueGroup => Boolean(c));
+
+    if (children.length === 0) {
+      const x = nextLeafX;
+      nextLeafX += nodeW + gapX;
+      positions.set(clique.key, { x, y });
+      return x;
+    }
+
+    const childXs: number[] = [];
+    for (const child of children) {
+      visibleEdges.push({ parent: clique, child });
+      childXs.push(layoutSubtree(child));
+    }
+
+    const avgX = (childXs[0] + childXs[childXs.length - 1]) / 2;
+    positions.set(clique.key, { x: avgX, y });
+    return avgX;
+  }
+
+  for (const root of roots) {
+    layoutSubtree(root);
+  }
+
+  const maxVisibleK = Math.max(minK, ...visibleNodes.map((n) => n.k));
+  const totalWidth = Math.max(320, nextLeafX - gapX + nodeW / 2 + 12);
+  const totalHeight = padTop + (maxVisibleK - minK) * levelH + nodeH + padBottom;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
+  svg.setAttribute('width', String(totalWidth));
+  svg.setAttribute('height', String(totalHeight));
+  svg.setAttribute('class', 'clique-tree-svg');
+
+  // 1. Horizontal k-level guide lines & labels (k=3, k=4, ...)
+  for (let k = minK; k <= maxVisibleK; k++) {
+    const rowY = padTop + (k - minK) * levelH + nodeH / 2;
+    const line = document.createElementNS(svgNS, 'line');
+    line.setAttribute('x1', String(leftAxisW));
+    line.setAttribute('y1', String(rowY));
+    line.setAttribute('x2', String(totalWidth - 8));
+    line.setAttribute('y2', String(rowY));
+    line.setAttribute('stroke', 'var(--border-color)');
+    line.setAttribute('stroke-dasharray', '3 4');
+    line.setAttribute('stroke-opacity', '0.55');
+    svg.appendChild(line);
+
+    const lbl = document.createElementNS(svgNS, 'text');
+    lbl.setAttribute('x', '6');
+    lbl.setAttribute('y', String(rowY + 4));
+    lbl.setAttribute('class', 'tree-level-label');
+    lbl.textContent = `k = ${k}`;
+    svg.appendChild(lbl);
+  }
+
+  // 2. Curved inclusion edges from k-clique parent down to (k+1)-clique child
+  for (const { parent, child } of visibleEdges) {
+    const pPos = positions.get(parent.key)!;
+    const cPos = positions.get(child.key)!;
+    const x1 = pPos.x;
+    const y1 = pPos.y + nodeH / 2;
+    const x2 = cPos.x;
+    const y2 = cPos.y - nodeH / 2;
+    const midY = (y1 + y2) / 2;
+
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
+    path.setAttribute(
+      'class',
+      `tree-link${activeCliqueKey === child.key || activeCliqueKey === parent.key ? ' tree-link-active' : ''}`
+    );
+    svg.appendChild(path);
+  }
+
+  // 3. Clique Nodes
+  for (const clique of visibleNodes) {
+    const pos = positions.get(clique.key)!;
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute(
+      'class',
+      `tree-node-group${activeCliqueKey === clique.key ? ' active' : ''}`
+    );
+    g.setAttribute('data-clique-key', clique.key);
+    g.setAttribute('transform', `translate(${pos.x - nodeW / 2}, ${pos.y - nodeH / 2})`);
+
+    const rect = document.createElementNS(svgNS, 'rect');
+    rect.setAttribute('width', String(nodeW));
+    rect.setAttribute('height', String(nodeH));
+    rect.setAttribute('rx', '8');
+    rect.setAttribute('class', 'tree-node-rect');
+    g.appendChild(rect);
+
+    const dot = document.createElementNS(svgNS, 'circle');
+    dot.setAttribute('cx', '13');
+    dot.setAttribute('cy', '16');
+    dot.setAttribute('r', '4.5');
+    dot.setAttribute('fill', clique.color);
+    g.appendChild(dot);
+
+    const titleText = document.createElementNS(svgNS, 'text');
+    titleText.setAttribute('x', '23');
+    titleText.setAttribute('y', '19.5');
+    titleText.setAttribute('class', 'tree-node-title');
+    const rawLabel = `${clique.key} ${clique.label}`;
+    titleText.textContent = rawLabel.length > 19 ? `${rawLabel.slice(0, 18)}…` : rawLabel;
+    g.appendChild(titleText);
+
+    const subText = document.createElementNS(svgNS, 'text');
+    subText.setAttribute('x', '23');
+    subText.setAttribute('y', '34');
+    subText.setAttribute('class', 'tree-node-sub');
+    const extraInfo = clique.distinctWord ? ` · +${clique.distinctWord}` : '';
+    subText.textContent = `${clique.words.length} ord${extraInfo}`;
+    g.appendChild(subText);
+
+    g.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectAndHighlightClique(clique);
+      const cardEl = cliquesContainer.querySelector<HTMLElement>(
+        `.group-card[data-clique-key="${clique.key}"]`
+      );
+      cardEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
+    // Expand / Collapse toggle badge on parent nodes
+    if (clique.childrenKeys.length > 0) {
+      const isCollapsed = collapsedCliqueKeys.has(clique.key);
+      const toggleG = document.createElementNS(svgNS, 'g');
+      toggleG.setAttribute('transform', `translate(${nodeW / 2}, ${nodeH})`);
+
+      const toggleCircle = document.createElementNS(svgNS, 'circle');
+      toggleCircle.setAttribute('r', '8.5');
+      toggleCircle.setAttribute('class', 'tree-toggle-circle');
+      toggleG.appendChild(toggleCircle);
+
+      const toggleTxt = document.createElementNS(svgNS, 'text');
+      toggleTxt.setAttribute('class', 'tree-toggle-text');
+      toggleTxt.textContent = isCollapsed ? `+${clique.childrenKeys.length}` : '−';
+      toggleG.appendChild(toggleTxt);
+
+      toggleG.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (collapsedCliqueKeys.has(clique.key)) {
+          collapsedCliqueKeys.delete(clique.key);
+        } else {
+          collapsedCliqueKeys.add(clique.key);
+        }
+        renderCliques(graph);
+      });
+
+      g.appendChild(toggleG);
+    }
+
+    svg.appendChild(g);
+  }
+
+  cliquesTreeDiagram.appendChild(svg);
+}
+
+// Render Cliques Tab (Hierarchical Tree View + Flat List View)
 function renderCliques(graph: GalaxyGraph) {
   cliquesContainer.innerHTML = '';
+  cliquesTreeDiagram.innerHTML = '';
+
   if (graph.cliques.length === 0) {
+    cliquesTreeDiagram.hidden = true;
     cliquesContainer.innerHTML = `<p style="color: var(--text-muted)">Ingen k-klikkstrukturer (k ≥ 3) funnet i denne grafen.</p>`;
     return;
   }
 
-  for (const clique of graph.cliques) {
+  const byKey = new Map<string, CliqueGroup>();
+  for (const c of graph.cliques) byKey.set(c.key, c);
+
+  renderCliqueTreeDiagram(graph, byKey);
+
+  function createCliqueCardElement(clique: CliqueGroup, isTreeMode: boolean): HTMLElement {
     const card = document.createElement('div');
-    card.className = 'group-card';
+    card.className = `group-card${activeCliqueKey === clique.key ? ' active' : ''}`;
+    card.dataset.cliqueKey = clique.key;
+
+    // Words that continue into a (k+1) child clique
+    const childWordSet = new Set<string>();
+    for (const ck of clique.childrenKeys) {
+      const childClique = byKey.get(ck);
+      if (childClique) {
+        for (const w of childClique.words) childWordSet.add(w);
+      }
+    }
 
     const header = document.createElement('div');
     header.className = 'group-header';
 
     const title = document.createElement('div');
     title.className = 'group-title';
-    title.textContent = `Klikk ${clique.key} (k=${clique.k})`;
+    title.innerHTML = `<span class="color-dot" style="background-color: ${clique.color}"></span><span>${formatCliqueDisplayTitle(clique)}</span>`;
     title.title = 'Klikk for å utheve klikken i grafen';
     title.addEventListener('click', () => {
-      document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
-      card.classList.add('active');
-      visualizer.highlightSubset(clique.words);
-      clearHighlightBtn.hidden = false;
+      selectAndHighlightClique(clique);
     });
+
+    const actions = document.createElement('div');
+    actions.className = 'clique-card-actions';
 
     const count = document.createElement('span');
     count.className = 'group-count';
-    count.textContent = `${clique.words.length} ord`;
+    count.textContent = `k=${clique.k} · ${clique.words.length} ord`;
+    actions.appendChild(count);
 
-    header.append(title, count);
+    // Button to collapse/expand word pills on large cliques
+    const wordsCollapsed = collapsedWordsCliqueKeys.has(clique.key);
+    const toggleWordsBtn = document.createElement('button');
+    toggleWordsBtn.type = 'button';
+    toggleWordsBtn.className = 'clique-expand-btn';
+    toggleWordsBtn.textContent = wordsCollapsed ? 'Vis ord' : 'Skjul ord';
+    toggleWordsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (collapsedWordsCliqueKeys.has(clique.key)) {
+        collapsedWordsCliqueKeys.delete(clique.key);
+      } else {
+        collapsedWordsCliqueKeys.add(clique.key);
+      }
+      renderCliques(graph);
+    });
+    actions.appendChild(toggleWordsBtn);
 
-    const pillList = document.createElement('div');
-    pillList.className = 'word-pill-list';
-
-    for (const word of clique.words) {
-      const pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = 'word-pill';
-      pill.textContent = word;
-      pill.addEventListener('click', () => {
-        visualizer.highlightSubset(null);
-        visualizer.selectNodeById(word);
+    if (isTreeMode && clique.childrenKeys.length > 0) {
+      const isBranchCollapsed = collapsedCliqueKeys.has(clique.key);
+      const toggleBranchBtn = document.createElement('button');
+      toggleBranchBtn.type = 'button';
+      toggleBranchBtn.className = 'clique-expand-btn';
+      toggleBranchBtn.textContent = isBranchCollapsed
+        ? `▸ +${clique.childrenKeys.length} underklikk${clique.childrenKeys.length > 1 ? 'er' : ''}`
+        : `▾ ${clique.childrenKeys.length} underklikk${clique.childrenKeys.length > 1 ? 'er' : ''}`;
+      toggleBranchBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (collapsedCliqueKeys.has(clique.key)) {
+          collapsedCliqueKeys.delete(clique.key);
+        } else {
+          collapsedCliqueKeys.add(clique.key);
+        }
+        renderCliques(graph);
       });
-      pillList.appendChild(pill);
+      actions.appendChild(toggleBranchBtn);
     }
 
-    card.append(header, pillList);
-    cliquesContainer.appendChild(card);
+    header.append(title, actions);
+    card.appendChild(header);
+
+    if (!wordsCollapsed) {
+      const pillList = document.createElement('div');
+      pillList.className = 'word-pill-list';
+
+      for (const word of clique.words) {
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        const inHigherK = childWordSet.has(word);
+        pill.className = `word-pill${inHigherK ? ' word-pill-bridge' : ''}`;
+        if (inHigherK) {
+          pill.title = `Går videre inn i tettere (${clique.k + 1})-klikk`;
+          pill.innerHTML = `${word}<span class="pill-badge">k+${1}</span>`;
+        } else {
+          pill.textContent = word;
+        }
+        pill.addEventListener('click', () => {
+          visualizer.highlightSubset(null);
+          clearHighlightBtn.hidden = true;
+          visualizer.selectNodeById(word);
+        });
+        pillList.appendChild(pill);
+      }
+      card.appendChild(pillList);
+    }
+
+    return card;
+  }
+
+  if (cliquesViewMode === 'tree') {
+    const roots = graph.cliques.filter((c) => c.parentKey === null);
+
+    function buildBranchDOM(clique: CliqueGroup): HTMLElement {
+      const branchWrap = document.createElement('div');
+      branchWrap.className = 'clique-tree-branch';
+
+      const card = createCliqueCardElement(clique, true);
+      branchWrap.appendChild(card);
+
+      if (clique.childrenKeys.length > 0 && !collapsedCliqueKeys.has(clique.key)) {
+        const childrenWrap = document.createElement('div');
+        childrenWrap.className = 'clique-tree-children';
+        for (const ck of clique.childrenKeys) {
+          const child = byKey.get(ck);
+          if (child) {
+            childrenWrap.appendChild(buildBranchDOM(child));
+          }
+        }
+        branchWrap.appendChild(childrenWrap);
+      }
+
+      return branchWrap;
+    }
+
+    for (const root of roots) {
+      cliquesContainer.appendChild(buildBranchDOM(root));
+    }
+  } else {
+    // Classic flat list view, with central-word naming and centrality-ordered words
+    for (const clique of graph.cliques) {
+      cliquesContainer.appendChild(createCliqueCardElement(clique, false));
+    }
   }
 }
 
@@ -778,6 +1125,9 @@ async function loadGalaxy() {
   try {
     const graph = await fetchGalaxyGraph(terms, cutoff, corpus);
     currentGraph = graph;
+    activeCliqueKey = null;
+    collapsedCliqueKeys.clear();
+    collapsedWordsCliqueKeys.clear();
     visualizer.setGraph(graph);
 
     renderClusters(graph);

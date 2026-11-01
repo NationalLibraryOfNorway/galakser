@@ -13,8 +13,9 @@ En moderne Progressive Web App (PWA) basert på Streamlit-appen [`Yoonsen/galaxy
 - **Overlappsclustre (`dual_graphs_yoonsen` – Linjegraf + Louvain + Attachment)**:
   - Bygger linjegrafen $L(G)$ der kantene er noder, kjører flernivå-Louvain på både $G$ og $L(G)$, og knytter linjegraf-klynger til de opprinnelige klyngene (`match_clusters_with_overlap` med enten *Beste overlapp* eller *Jaccard-terskel*).
   - Gir 100 % nodedekning kombinert med naturlig overlapp for polyseme bro-ord, inkludert oversikt over bro-ord, grådig *Set-Cover* og sammenligning mot vanlig Louvain og klikk-perkolasjon.
-- **Klikkstruktur (`kcliques`)**:
-  - Eksakt Bron–Kerbosch + $k$-klikk-perkolasjon (`k_clique_communities` for $k \ge 3$) som grupperer tette undergrafer (`3-1`, `4-1`, osv.).
+- **Klikkstruktur (`kcliques` + `subsetgraph`)**:
+  - Eksakt Bron–Kerbosch + $k$-klikk-perkolasjon (`k_clique_communities` for $k \ge 3$) der hver klikk navngis med kode og de to mest sentrale ordene (f.eks. `3-1 · is-snø`, `4-2 · demokrati-folkestyre`).
+  - Strengt hierarkisk inklusjonstre (SVG-tretegner + ekspanderbare trenoder + listevisning) der toppklikkene ($k=3$) danner hovedinndelinger som splittes videre i $4$-klikker, $5$-klikker osv. ved inklusjon.
 - **Sentralitetstabell**:
   - Sorterbar oversikt over `Degree Centrality`, `Betweenness Centrality` (Brandes' algoritme) og `Closeness Centrality`.
 - **Sti mellom noder (`path` / `paths`)**:
