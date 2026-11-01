@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="nb">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- MANDATORY: Declare support for both light and dark themes -->
+    <meta name="color-scheme" content="light dark" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Ordnettverk og galakser fra Nasjonalbibliotekets trigrambase (DH-lab)"
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <title>Ordnettverk · Galakser – DH-lab</title>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-group">
+        <div>
+          <h1 class="brand-title">Ordnettverk · Galakser</h1>
+          <p class="brand-subtitle">
+            Les mer om <a href="https://nb.no/dh-lab" target="_blank" rel="noopener">DH ved Nasjonalbiblioteket</a>
+            · Data fra NBs trigrambase
+          </p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="install-pwa-btn" class="btn btn-sm" hidden title="Installer som app">
+          Installer app
+        </button>
+        <a href="https://nb.no/dh-lab" target="_blank" rel="noopener" aria-label="DH-lab Nasjonalbiblioteket">
+          <img
+            src="./DHlab_logo_web_en_black.png"
+            alt="DH-lab logo"
+            class="dhlab-logo"
+            width="136"
+            height="32"
+          />
+        </a>
+      </div>
+    </header>
+
+    <form id="galaxy-form" class="search-bar">
+      <div class="field-group field-words">
+        <label for="words-input">
+          <span>Skriv inn ett ord eller flere adskilt med komma</span>
+          <small>Skiller mellom store/små bokstaver</small>
+        </label>
+        <input
+          id="words-input"
+          type="text"
+          class="input-control"
+          value="frihet"
+          placeholder="f.eks. frihet, demokrati"
+          autocomplete="off"
+          required
+        />
+      </div>
+
+      <div class="field-group">
+        <label for="corpus-select">Bøker eller aviser</label>
+        <select id="corpus-select" class="select-control">
+          <option value="all" selected>Begge (bok + avis)</option>
+          <option value="bok">Kun bøker (bok)</option>
+          <option value="avis">Kun aviser (avis)</option>
+          <option value="eng">Engelsk (Google N-gram)</option>
+          <option value="ger">Tysk (Google N-gram)</option>
+        </select>
+      </div>
+
+      <div class="field-group">
+        <label for="cutoff-input">
+          <span>Tilfang av noder</span>
+          <output id="cutoff-output" for="cutoff-input">16</output>
+        </label>
+        <input
+          id="cutoff-input"
+          type="range"
+          min="10"
+          max="24"
+          step="1"
+          value="16"
+          class="input-control"
+          title="Angi et tall mellom 10 og 24 – jo større, jo flere noder"
+        />
+      </div>
+
+      <button type="submit" id="fetch-btn" class="btn btn-primary">
+        Hent galakse
+      </button>
+    </form>
+
+    <main class="workspace">
+      <section class="graph-stage" aria-label="Interaktiv nettverksgraf">
+        <canvas id="galaxy-canvas"></canvas>
+
+        <div class="graph-toolbar">
+          <label class="toolbar-item" title="Spredning i grafen (spread)">
+            <span>Spread</span>
+            <input id="spread-range" type="range" min="0.5" max="2.4" step="0.1" value="1.2" />
+          </label>
+          <label class="toolbar-item" title="Tekststørrelse (fontsize)">
+            <span>Tekst</span>
+            <input id="fontsize-range" type="range" min="0" max="24" step="1" value="13" />
+          </label>
+          <label class="toolbar-item">
+            <input id="arrows-toggle" type="checkbox" checked />
+            <span>Piler</span>
+          </label>
+          <button type="button" id="zoom-in-btn" class="btn btn-sm" title="Zoom inn">+</button>
+          <button type="button" id="zoom-out-btn" class="btn btn-sm" title="Zoom ut">−</button>
+          <button type="button" id="reset-view-btn" class="btn btn-sm" title="Nullstill visning">
+            Sentrer
+          </button>
+          <button type="button" id="export-png-btn" class="btn btn-sm" title="Last ned PNG">
+            PNG
+          </button>
+        </div>
+
+        <div id="status-badge" class="status-badge">Klar</div>
+
+        <aside id="node-inspector" class="node-inspector" hidden aria-live="polite">
+          <div class="inspector-header">
+            <div class="inspector-word">
+              <span id="insp-dot" class="color-dot"></span>
+              <span id="insp-title"></span>
+            </div>
+            <button type="button" id="insp-close-btn" class="btn btn-sm" aria-label="Lukk">✕</button>
+          </div>
+          <div id="insp-cluster" style="font-size: 0.78rem; color: var(--text-muted)"></div>
+          <div class="inspector-metrics">
+            <div class="metric-box">
+              <span>Grad</span>
+              <strong id="insp-deg">0</strong>
+            </div>
+            <div class="metric-box">
+              <span>Sentralitet</span>
+              <strong id="insp-cent">0</strong>
+            </div>
+            <div class="metric-box">
+              <span>Betweenness</span>
+              <strong id="insp-betw">0</strong>
+            </div>
+          </div>
+          <div class="inspector-actions">
+            <button type="button" id="insp-from-btn" class="btn btn-sm">Sett som «Fra»</button>
+            <button type="button" id="insp-to-btn" class="btn btn-sm">Sett som «Til»</button>
+            <button type="button" id="insp-add-word-btn" class="btn btn-sm">+ Legg til i søk</button>
+            <button type="button" id="insp-solo-word-btn" class="btn btn-sm">Ny galakse</button>
+          </div>
+        </aside>
+      </section>
+
+      <aside class="analysis-panel" aria-label="Nettverksanalyse">
+        <div class="tab-nav" role="tablist">
+          <button
+            type="button"
+            class="tab-btn"
+            role="tab"
+            aria-selected="true"
+            data-tab="clusters"
+          >
+            Clustre
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            role="tab"
+            aria-selected="false"
+            data-tab="cliques"
+          >
+            Klikkstruktur
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            role="tab"
+            aria-selected="false"
+            data-tab="centrality"
+          >
+            Sentralitet
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            role="tab"
+            aria-selected="false"
+            data-tab="paths"
+          >
+            Sti mellom noder
+          </button>
+        </div>
+
+        <div class="tab-content">
+          <!-- Tab 1: Clustre -->
+          <section id="tab-clusters" class="tab-pane" role="tabpanel">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-block-end: 0.75rem;
+              "
+            >
+              <span style="font-size: 0.82rem; color: var(--text-muted)">
+                Klikk på et cluster eller ord for å utheve det i grafen.
+              </span>
+              <button type="button" id="clear-highlight-btn" class="btn btn-sm" hidden>
+                Vis alle
+              </button>
+            </div>
+            <div id="clusters-container"></div>
+          </section>
+
+          <!-- Tab 2: Klikkstruktur -->
+          <section id="tab-cliques" class="tab-pane" role="tabpanel" hidden>
+            <p style="margin-block-start: 0; font-size: 0.82rem; color: var(--text-muted)">
+              k-klikk-samfunn (perkolerte klikker av størrelse k ≥ 3). Klikk for å utheve i grafen.
+            </p>
+            <div id="cliques-container"></div>
+          </section>
+
+          <!-- Tab 3: Sentralitet -->
+          <section id="tab-centrality" class="tab-pane" role="tabpanel" hidden>
+            <p style="margin-block-start: 0; font-size: 0.82rem; color: var(--text-muted)">
+              Klikk på en kolonneoverskrift for å sortere, eller på en rad for å fokusere noden.
+            </p>
+            <table class="centrality-table">
+              <thead>
+                <tr>
+                  <th data-sort="id">Ord</th>
+                  <th data-sort="degreeCentrality">Sentralitet ↓</th>
+                  <th data-sort="betweennessCentrality">Betweenness</th>
+                  <th data-sort="closenessCentrality">Closeness</th>
+                </tr>
+              </thead>
+              <tbody id="centrality-tbody"></tbody>
+            </table>
+          </section>
+
+          <!-- Tab 4: Sti mellom noder -->
+          <section id="tab-paths" class="tab-pane" role="tabpanel" hidden>
+            <div class="path-form">
+              <div class="field-group">
+                <label for="path-from-input">Fra (startnode)</label>
+                <input
+                  id="path-from-input"
+                  type="text"
+                  class="input-control"
+                  list="graph-nodes-datalist"
+                  placeholder="Startord"
+                />
+              </div>
+              <div class="field-group">
+                <label for="path-to-input">Til (sluttnode)</label>
+                <input
+                  id="path-to-input"
+                  type="text"
+                  class="input-control"
+                  list="graph-nodes-datalist"
+                  placeholder="Sluttord"
+                />
+              </div>
+              <button type="button" id="find-path-btn" class="btn btn-primary">
+                Finn stier
+              </button>
+            </div>
+            <datalist id="graph-nodes-datalist"></datalist>
+            <div id="paths-results"></div>
+          </section>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
