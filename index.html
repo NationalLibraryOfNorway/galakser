@@ -234,7 +234,10 @@
               <div class="overlap-strategy-bar">
                 <label for="overlap-strategy-select">Tilknytningsstrategi:</label>
                 <select id="overlap-strategy-select" class="select-control select-sm">
-                  <option value="best_overlap" selected>Beste overlapp (1-til-1 union)</option>
+                  <option value="clique_hybrid" selected>
+                    Linjegraf + klikk-forankring (anbefalt)
+                  </option>
+                  <option value="best_overlap">Kun linjegraf (1-til-1 union)</option>
                   <option value="threshold_020">Jaccard-terskel ≥ 0.20</option>
                   <option value="threshold_012">Jaccard-terskel ≥ 0.12 (bredere)</option>
                 </select>

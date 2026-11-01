@@ -259,13 +259,22 @@ function recomputeAndRenderOverlap() {
       'threshold',
       0.12
     );
-  } else {
+  } else if (mode === 'best_overlap') {
     currentGraph.overlap = computeOverlapAnalysis(
       currentGraph.nodes,
       currentGraph.adjUndirected,
       currentGraph.clusters,
       currentGraph.cliques,
       'best_overlap',
+      0.25
+    );
+  } else {
+    currentGraph.overlap = computeOverlapAnalysis(
+      currentGraph.nodes,
+      currentGraph.adjUndirected,
+      currentGraph.clusters,
+      currentGraph.cliques,
+      'clique_hybrid',
       0.25
     );
   }
@@ -390,16 +399,22 @@ function renderOverlapClusters(graph: GalaxyGraph) {
 
     const submeta = document.createElement('div');
     submeta.className = 'overlap-submeta';
+    const lgAddedCount = cluster.addedWords.length - cluster.cliqueAddedWords.length;
     const addedTag =
-      cluster.addedWords.length > 0
-        ? `<span class="meta-tag meta-tag-accent" title="Nye grense-/bro-ord tilknyttet fra linjegrafen">+${cluster.addedWords.length} tilknyttet via L(G)</span>`
-        : `<span class="meta-tag">0 ekstra fra L(G)</span>`;
+      lgAddedCount > 0
+        ? `<span class="meta-tag meta-tag-accent" title="Nye grense-/bro-ord tilknyttet fra linjegrafen">+${lgAddedCount} via L(G)</span>`
+        : `<span class="meta-tag">0 fra L(G)</span>`;
+    const cliqueTag =
+      cluster.cliqueAddedWords.length > 0
+        ? `<span class="meta-tag meta-tag-accent" title="Bro-ord forankret via trekant/klikkstruktur (${cluster.cliqueAddedWords.join(', ')})">+${cluster.cliqueAddedWords.length} via klikk (${cluster.cliqueAddedWords.slice(0, 2).join(', ')})</span>`
+        : '';
     const coverTag = cluster.inSetCover
       ? `<span class="meta-tag" title="Inngår i grådig set-cover og dekker ${cluster.setCoverNewlyAdded} nye noder">Set-cover (+${cluster.setCoverNewlyAdded})</span>`
       : '';
     submeta.innerHTML = `
-      <span class="meta-tag" title="Opprinnelig Louvain-cluster før linjegraf-tilknytning">Kjerne: ${cluster.origLabel}</span>
+      <span class="meta-tag" title="Opprinnelig Louvain-cluster før tilknytning">Kjerne: ${cluster.origLabel}</span>
       ${addedTag}
+      ${cliqueTag}
       ${coverTag}
     `;
 
@@ -673,8 +688,9 @@ function renderCliqueTreeDiagram(graph: GalaxyGraph, byKey: Map<string, CliqueGr
     subText.setAttribute('x', '23');
     subText.setAttribute('y', '34');
     subText.setAttribute('class', 'tree-node-sub');
-    const extraInfo = clique.distinctWord ? ` · +${clique.distinctWord}` : '';
-    subText.textContent = `${clique.words.length} ord${extraInfo}`;
+    const cCount = clique.clusterSpread.length;
+    const spreadText = cCount === 1 ? '1 cluster' : `${cCount} clustre`;
+    subText.textContent = `${clique.words.length} ord · ${spreadText}`;
     g.appendChild(subText);
 
     g.addEventListener('click', (e) => {
@@ -809,6 +825,60 @@ function renderCliques(graph: GalaxyGraph) {
 
     header.append(title, actions);
     card.appendChild(header);
+
+    // Cluster spread (Clusterspredning across Louvain communities)
+    if (clique.clusterSpread.length > 0) {
+      const spreadBox = document.createElement('div');
+      spreadBox.className = 'clique-spread-box';
+
+      const spreadHeader = document.createElement('div');
+      spreadHeader.className = 'clique-spread-header';
+
+      const topShare = clique.clusterSpread[0]?.share ?? 1;
+      const spreadCount = clique.clusterSpread.length;
+      let regimeLabel = 'Ren delmengde (1 cluster)';
+      if (spreadCount >= 2 && topShare >= 0.75) {
+        regimeLabel = `Kjerne + bro (${spreadCount} clustre)`;
+      } else if (spreadCount >= 2) {
+        regimeLabel = `Tverrgående klikk (${spreadCount} clustre)`;
+      }
+
+      spreadHeader.innerHTML = `
+        <span>Clusterspredning: <strong>${regimeLabel}</strong></span>
+        <span>Dominant: ${Math.round(topShare * 100)} %</span>
+      `;
+      spreadBox.appendChild(spreadHeader);
+
+      const bar = document.createElement('div');
+      bar.className = 'cluster-spread-bar';
+      for (const item of clique.clusterSpread) {
+        const seg = document.createElement('span');
+        seg.className = 'cluster-spread-seg';
+        seg.style.inlineSize = `${Math.max(4, Math.round(item.share * 100))}%`;
+        seg.style.backgroundColor = item.color;
+        seg.title = `${item.clusterLabel}: ${item.count} ord (${Math.round(item.share * 100)} %) – ${item.words.join(', ')}`;
+        bar.appendChild(seg);
+      }
+      spreadBox.appendChild(bar);
+
+      const tagsWrap = document.createElement('div');
+      tagsWrap.className = 'cluster-spread-tags';
+      for (const item of clique.clusterSpread) {
+        const tag = document.createElement('button');
+        tag.type = 'button';
+        tag.className = 'spread-tag';
+        tag.title = `Klikk for å utheve de ${item.count} ordene fra ${item.clusterLabel}: ${item.words.join(', ')}`;
+        tag.innerHTML = `<span class="color-dot" style="background-color: ${item.color}; inline-size: 8px; block-size: 8px;"></span><span>${item.clusterLabel}: ${item.count} (${Math.round(item.share * 100)} %)</span>`;
+        tag.addEventListener('click', (e) => {
+          e.stopPropagation();
+          visualizer.highlightSubset(item.words);
+          clearHighlightBtn.hidden = false;
+        });
+        tagsWrap.appendChild(tag);
+      }
+      spreadBox.appendChild(tagsWrap);
+      card.appendChild(spreadBox);
+    }
 
     if (!wordsCollapsed) {
       const pillList = document.createElement('div');

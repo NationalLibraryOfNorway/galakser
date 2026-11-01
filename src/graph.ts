@@ -28,6 +28,15 @@ export interface ClusterGroup {
   words: string[];
 }
 
+export interface CliqueClusterShare {
+  clusterId: number;
+  clusterLabel: string;
+  color: string;
+  count: number;
+  share: number;
+  words: string[];
+}
+
 export interface CliqueGroup {
   key: string; // e.g. "3-1", "4-1"
   k: number;
@@ -38,6 +47,7 @@ export interface CliqueGroup {
   words: string[];
   parentKey: string | null;
   childrenKeys: string[];
+  clusterSpread: CliqueClusterShare[];
 }
 
 export interface OverlapClusterGroup {
@@ -49,6 +59,7 @@ export interface OverlapClusterGroup {
   color: string;
   words: string[];
   addedWords: string[];
+  cliqueAddedWords: string[];
   inSetCover: boolean;
   setCoverNewlyAdded: number;
 }
@@ -223,13 +234,13 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
   // Compute k-clique communities & inclusion tree like gnl.kcliques + gnl.subsetgraph
   const cliques = computeKCliqueCommunities(nodes, adjUndirected);
 
-  // Compute Overlapping Clusters via Line Graph (Dual Graph) + Louvain + Attachment
+  // Compute Overlapping Clusters via Line Graph (Dual Graph) + Louvain + Clique-Informed Attachment
   const overlap = computeOverlapAnalysis(
     nodes,
     adjUndirected,
     clusters,
     cliques,
-    'best_overlap',
+    'clique_hybrid',
     0.25
   );
 
@@ -710,10 +721,33 @@ function computeKCliqueCommunities(
     levelCommunities.forEach((words, idx) => {
       const compIdx = idx + 1;
       const label = words.slice(0, 2).join('-');
-      // Pick dominant color from the most central non-ego word or top word
-      const colorWord = words.length > 1 ? words[1] : words[0];
-      const color =
-        nodes.get(colorWord)?.color ?? nodes.get(words[0])?.color ?? CLUSTER_COLORS[0];
+
+      // Compute cluster spread across Louvain communities
+      const spreadMap = new Map<number, { label: string; color: string; words: string[] }>();
+      for (const w of words) {
+        const n = nodes.get(w);
+        const cid = n?.communityId ?? 0;
+        const clbl = n?.communityLabel || `Cluster ${cid}`;
+        const ccol = n?.color || CLUSTER_COLORS[0];
+        if (!spreadMap.has(cid)) {
+          spreadMap.set(cid, { label: clbl, color: ccol, words: [] });
+        }
+        spreadMap.get(cid)!.words.push(w);
+      }
+
+      const clusterSpread: CliqueClusterShare[] = Array.from(spreadMap.entries())
+        .map(([clusterId, info]) => ({
+          clusterId,
+          clusterLabel: info.label,
+          color: info.color,
+          count: info.words.length,
+          share: words.length > 0 ? info.words.length / words.length : 0,
+          words: info.words,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      // Pick dominant color from the largest cluster share in this clique
+      const color = clusterSpread[0]?.color ?? nodes.get(words[0])?.color ?? CLUSTER_COLORS[0];
 
       cliqueGroups.push({
         key: `${k}-${compIdx}`,
@@ -724,6 +758,7 @@ function computeKCliqueCommunities(
         words,
         parentKey: null,
         childrenKeys: [],
+        clusterSpread,
       });
     });
   }
@@ -885,7 +920,7 @@ export function computeOverlapAnalysis(
   adjUndirected: Map<string, Map<string, number>>,
   origClusters: ClusterGroup[],
   cliques: CliqueGroup[],
-  strategy: 'best_overlap' | 'threshold' = 'best_overlap',
+  strategy: 'clique_hybrid' | 'best_overlap' | 'threshold' = 'clique_hybrid',
   jaccardThreshold: number = 0.25
 ): OverlapAnalysis {
   // 1. Extract unique undirected edges in sorted word order (matching build_cooccurrence_from_coordinations)
@@ -997,15 +1032,17 @@ export function computeOverlapAnalysis(
     jaccardScore: number;
     words: string[];
     addedWords: string[];
+    cliqueAddedWords: string[];
   }[] = [];
 
   for (const orig of origClusters) {
     const origSet = new Set(orig.words);
     const combinedSet = new Set(orig.words);
+    const cliqueAddedSet = new Set<string>();
     let bestOverlap = 0;
     let bestJaccard = 0;
 
-    if (strategy === 'best_overlap') {
+    if (strategy === 'best_overlap' || strategy === 'clique_hybrid') {
       let bestDual: Set<string> | null = null;
 
       for (const dSet of dualClusters) {
@@ -1023,6 +1060,25 @@ export function computeOverlapAnalysis(
 
       if (bestDual) {
         for (const w of bestDual) combinedSet.add(w);
+      }
+
+      // Clique-informed bridge attachment: if a 3-clique has >= 2 core nodes in origSet,
+      // attach any node w in that clique that forms at least one triangle (>= 2 links) with the core
+      if (strategy === 'clique_hybrid') {
+        for (const cl of k3Cliques) {
+          const coreInOrig = cl.words.filter((w) => origSet.has(w));
+          if (coreInOrig.length < 2) continue;
+          for (const w of cl.words) {
+            if (origSet.has(w)) continue;
+            const nbrs = adjUndirected.get(w);
+            if (!nbrs) continue;
+            const linksToCore = coreInOrig.filter((u) => nbrs.has(u)).length;
+            if (linksToCore >= 2) {
+              if (!combinedSet.has(w)) cliqueAddedSet.add(w);
+              combinedSet.add(w);
+            }
+          }
+        }
       }
     } else {
       // 'threshold' strategy: attach all dual clusters with Jaccard >= jaccardThreshold
@@ -1051,12 +1107,14 @@ export function computeOverlapAnalysis(
     });
 
     const addedWords = sortedWords.filter((w) => !origSet.has(w));
+    const cliqueAddedWords = sortedWords.filter((w) => cliqueAddedSet.has(w));
     rawOverlapClusters.push({
       orig,
       overlapCount: bestOverlap,
       jaccardScore: bestJaccard,
       words: sortedWords,
       addedWords,
+      cliqueAddedWords,
     });
   }
 
@@ -1085,6 +1143,7 @@ export function computeOverlapAnalysis(
       color: rc.orig.color,
       words: rc.words,
       addedWords: rc.addedWords,
+      cliqueAddedWords: rc.cliqueAddedWords,
       inSetCover: false,
       setCoverNewlyAdded: 0,
     };
