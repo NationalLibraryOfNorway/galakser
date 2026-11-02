@@ -1,6 +1,21 @@
 # Ordnettverk · Galakser (PWA)
 
-En moderne Progressive Web App (PWA) basert på Streamlit-appen [`Yoonsen/galaxy_streamlit`](https://github.com/Yoonsen/galaxy_streamlit), som henter ordgalakser direkte fra Nasjonalbibliotekets trigrambase ([DH-lab](https://nb.no/dh-lab)).
+En moderne Progressive Web App (PWA) basert på Streamlit-appen [`Yoonsen/galaxy_streamlit`](https://github.com/Yoonsen/galaxy_streamlit) og dualgraf-rammeverket i `dual_graphs_yoonsen`, som henter ordgalakser direkte fra Nasjonalbibliotekets trigrambase ([DH-lab](https://nb.no/dh-lab)).
+
+## Hva applikasjonen gjør
+
+**Ordgalakser** bygger et nettverk av ord ut fra *koordinasjoner* i Nasjonalbibliotekets tekstsamlinger – altså konstruksjoner der ord opptrer sideordnet med bindeord som «og», «eller» og komma (f.eks. *«is og snø»* eller *«frihet og demokrati»*). Når to ord stadig sidestilles i språkbruken, indikerer det at de tilhører samme semantiske felt eller samme diskursive ramme.
+
+Fra søkeordet $x$ går applikasjonen **to steg ut i koordinasjonsgrafen** ($x \to y \to z$):
+1. Først hentes de mest sentrale ordene $y$ som koordineres direkte med $x$.
+2. Deretter hentes ordene $z$ som i sin tur koordineres med $y$.
+
+Dermed fanger grafen både det umiddelbare nabolaget rundt søkeordet og den bredere konteksten som naboordene inngår i. Ved å partisjonere og analysere grafen med **Leiden/Louvain-clustre**, **hierarkiske $k$-klikker** og **overlappsclustre over linjegrafen $L(G)$** (med topologisk lekkasjestopper og entropibasert hub-sanering), viser applikasjonen hvordan ord henger sammen og gjør det mulig å undersøke både diskursive mønstre og betydningsnyanser:
+
+- **Betydningsaspekter og polysemi/homonymi (f.eks. «is» eller «pålegg»):** Et ord som *«is»* forgreiner seg i distinkte klynger for vær og føre (*snø, kulde, slaps*), mat og dessert (*kaker, brus, sjokolade*) og polare strøk, mens *«pålegg»* splittes mellom matvarer (*brød, smør, pølser*) og juridiske direktiver (*forbud, instrukser, tvangsmulkt*).
+- **Politiske og ideologiske begreper (f.eks. «kommunisme» eller «frihet»):** Avdekker diskursive sammenhenger og hvilke begreper som historisk stilles sammen i offentligheten – fra styringsformer og ideologiske motpoler (*fascisme, nazisme, kapitalisme, sosialisme*) til verdibegreper og samfunnsinstitusjoner.
+- **Stedsnavn og geografi (f.eks. «Paris»):** Samler europeiske metropoler, kulturbyer og reisemål (*London, Berlin, Roma, Wien*) og viser hvilke geografiske, politiske og kulturelle akser et sted inngår i.
+- **Fornavn og etternavn (f.eks. «Per» eller «Hamsun»):** Fornavn som *«Per»* får frem vanlige navnepar og fortellingskontekster (*Pål, Espen, Kari, Ola*), mens etternavn som *«Hamsun»* plasserer forfatteren i det litterære og idéhistoriske landskapet (*Ibsen, Bjørnson, Undset, Kinck, Dostojevskij*).
 
 ## Funksjoner
 

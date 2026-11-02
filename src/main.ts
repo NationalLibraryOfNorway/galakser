@@ -1381,6 +1381,15 @@ form.addEventListener('submit', (e) => {
 corpusSelect.addEventListener('change', () => loadGalaxy());
 cutoffInput.addEventListener('change', () => loadGalaxy());
 
+document.querySelectorAll<HTMLButtonElement>('.example-word-chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    const word = chip.dataset.exampleWord;
+    if (!word) return;
+    wordsInput.value = word;
+    loadGalaxy();
+  });
+});
+
 // Register PWA Service Worker & Install Prompt
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
