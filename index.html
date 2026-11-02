@@ -34,6 +34,15 @@
         >
           Om appen
         </button>
+        <button
+          type="button"
+          id="behind-scenes-btn"
+          class="btn btn-sm"
+          aria-pressed="false"
+          title="Vis alle faner, klikkstrukturer, linjegraf-statistikk og algoritmevalg"
+        >
+          Bak kulissene
+        </button>
         <button id="install-pwa-btn" class="btn btn-sm" hidden title="Installer som app">
           Installer app
         </button>
@@ -99,13 +108,13 @@
       </button>
     </form>
 
-    <main class="workspace">
+    <main id="workspace-main" class="workspace is-simple-mode">
       <nav class="tab-nav" role="tablist" aria-orientation="vertical" aria-label="Analysevalg">
         <button
           type="button"
           class="tab-btn"
           role="tab"
-          aria-selected="true"
+          aria-selected="false"
           data-tab="about"
         >
           Om appen
@@ -117,13 +126,13 @@
           aria-selected="false"
           data-tab="clusters"
         >
-          Clustre
+          Grunnclustre
         </button>
         <button
           type="button"
           class="tab-btn"
           role="tab"
-          aria-selected="false"
+          aria-selected="true"
           data-tab="overlap"
         >
           Overlappsclustre
@@ -159,10 +168,15 @@
 
       <aside class="analysis-panel" aria-label="Innhold og nettverksanalyse">
         <div class="tab-content">
-          <!-- Tab 0: Om appen (vises øverst som standard) -->
-          <section id="tab-about" class="tab-pane" role="tabpanel">
+          <!-- Tab 0: Om appen -->
+          <section id="tab-about" class="tab-pane" role="tabpanel" hidden>
             <div class="group-card about-card">
-              <h3 class="about-card-heading">Hvordan Ordgalakser bygger og analyserer nettverket</h3>
+              <div class="about-card-top">
+                <h3 class="about-card-heading">Hvordan Ordgalakser bygger og analyserer nettverket</h3>
+                <button type="button" id="close-about-simple-btn" class="btn btn-sm">
+                  Vis clustre →
+                </button>
+              </div>
               <p>
                 <strong>Ordgalakser</strong> bygger et nettverk av ord ut fra <em>koordinasjoner</em> i Nasjonalbibliotekets tekstsamlinger – altså uttrykk der ord opptrer sideordnet med bindeord som «og», «eller» og komma (f.eks. <em>«is og snø»</em> eller <em>«frihet og demokrati»</em>). Når to ord stadig sidestilles i språkbruken, peker det på at de tilhører samme semantiske felt eller samme diskursive ramme.
               </p>
@@ -217,9 +231,6 @@
                   </option>
                   <option value="louvain">Louvain (klassisk modularitet)</option>
                 </select>
-                <button type="button" id="clear-highlight-btn" class="btn btn-sm" hidden>
-                  Vis alle
-                </button>
               </div>
               <div class="overlap-intro">
                 <span>
@@ -231,8 +242,14 @@
           </section>
 
           <!-- Tab 2: Overlappsclustre (Leiden/Louvain + Linjegraf + Lekkasjestopper) -->
-          <section id="tab-overlap" class="tab-pane" role="tabpanel" hidden>
-            <div class="overlap-controls">
+          <section id="tab-overlap" class="tab-pane" role="tabpanel">
+            <div class="simple-clusters-header">
+              <div>
+                <strong>Clustre (betydningsgrupper)</strong>
+                <span>Klikk på en gruppe eller et ord for å utheve det i grafen.</span>
+              </div>
+            </div>
+            <div class="overlap-controls behind-scenes-only">
               <div class="overlap-intro">
                 <span>
                   Grad-penalisert linjegraf <em>L(G)</em> + lekkasjestopper (<code
@@ -260,8 +277,8 @@
                 </select>
               </div>
             </div>
-            <div id="overlap-stats-container"></div>
-            <div id="overlap-bridges-container"></div>
+            <div id="overlap-stats-container" class="behind-scenes-only"></div>
+            <div id="overlap-bridges-container" class="behind-scenes-only"></div>
             <div id="overlap-clusters-container"></div>
           </section>
 
@@ -384,6 +401,15 @@
           </button>
           <button type="button" id="export-png-btn" class="btn btn-sm" title="Last ned PNG">
             PNG
+          </button>
+          <button
+            type="button"
+            id="clear-highlight-btn"
+            class="btn btn-sm btn-primary"
+            hidden
+            title="Fjern utheving og vis alle noder"
+          >
+            Vis alle
           </button>
         </div>
 

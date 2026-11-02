@@ -131,7 +131,28 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 const VALID_TABS = ['about', 'clusters', 'overlap', 'cliques', 'centrality', 'paths'] as const;
 type TabId = (typeof VALID_TABS)[number];
-let currentTab: TabId = 'about';
+let currentTab: TabId = 'overlap';
+let behindTheScenes = false;
+
+const workspaceMain = document.getElementById('workspace-main') as HTMLElement | null;
+const behindScenesBtn = document.getElementById('behind-scenes-btn') as HTMLButtonElement | null;
+const openAboutBtn = document.getElementById('open-about-btn') as HTMLButtonElement | null;
+const closeAboutSimpleBtn = document.getElementById(
+  'close-about-simple-btn'
+) as HTMLButtonElement | null;
+
+function setBehindTheScenes(enabled: boolean, updateUrl = true) {
+  behindTheScenes = enabled;
+  workspaceMain?.classList.toggle('is-simple-mode', !enabled);
+  if (behindScenesBtn) {
+    behindScenesBtn.setAttribute('aria-pressed', String(enabled));
+  }
+  if (!enabled && currentTab !== 'about' && currentTab !== 'overlap') {
+    switchTab('overlap', false);
+  }
+  if (updateUrl) syncUrl();
+  requestAnimationFrame(() => visualizer.resize());
+}
 
 // Read initial parameters from URL query string if present
 function initFromUrl() {
@@ -140,6 +161,7 @@ function initFromUrl() {
   const c = params.get('corpus') as CorpusType | null;
   const lim = params.get('cutoff');
   const t = params.get('tab') as TabId | null;
+  const bak = params.get('bak');
 
   if (w) wordsInput.value = w;
   if (c && ['all', 'bok', 'avis', 'eng', 'ger'].includes(c)) corpusSelect.value = c;
@@ -148,10 +170,17 @@ function initFromUrl() {
     cutoffInput.value = String(n);
     cutoffOutput.textContent = String(n);
   }
+
+  const shouldEnableBehind =
+    bak === '1' ||
+    bak === 'true' ||
+    Boolean(t && ['clusters', 'cliques', 'centrality', 'paths'].includes(t));
+  setBehindTheScenes(shouldEnableBehind, false);
+
   if (t && (VALID_TABS as readonly string[]).includes(t)) {
     switchTab(t, false);
   } else {
-    switchTab('about', false);
+    switchTab('overlap', false);
   }
 }
 
@@ -160,7 +189,12 @@ function syncUrl() {
   url.searchParams.set('words', wordsInput.value.trim());
   url.searchParams.set('corpus', corpusSelect.value);
   url.searchParams.set('cutoff', cutoffInput.value);
-  if (currentTab !== 'about') {
+  if (behindTheScenes) {
+    url.searchParams.set('bak', '1');
+  } else {
+    url.searchParams.delete('bak');
+  }
+  if (currentTab !== 'overlap') {
     url.searchParams.set('tab', currentTab);
   } else {
     url.searchParams.delete('tab');
@@ -177,6 +211,14 @@ function updateStatusBadgeText() {
   if (!currentGraph) return;
   const baseAlgo = (clusterAlgoSelect.value || 'leiden') as BaseClusterAlgorithm;
   const algoName = baseAlgo === 'leiden' ? 'Leiden' : 'Louvain';
+  if (!behindTheScenes) {
+    if (graphViewMode === 'clusters') {
+      statusBadge.textContent = `Overlappsgraf: ${currentGraph.overlap.clusters.length} clustre · ${currentGraph.overlap.clusterEdges.length} koblinger`;
+    } else {
+      statusBadge.textContent = `${currentGraph.nodes.size} ord · ${currentGraph.edges.length} koblinger · ${currentGraph.overlap.clusters.length} clustre`;
+    }
+    return;
+  }
   if (graphViewMode === 'clusters') {
     statusBadge.textContent = `Overlappsgraf: ${currentGraph.overlap.clusters.length} klynger · ${currentGraph.overlap.clusterEdges.length} overlappskanter · ${currentGraph.overlap.bridgeWords.length} bro-ord (${algoName})`;
   } else {
@@ -330,8 +372,6 @@ inspSoloWordBtn.addEventListener('click', () => {
 });
 
 // Tab switching
-const openAboutBtn = document.getElementById('open-about-btn') as HTMLButtonElement | null;
-
 function switchTab(tabName: string, updateUrl = true) {
   if ((VALID_TABS as readonly string[]).includes(tabName)) {
     currentTab = tabName as TabId;
@@ -340,6 +380,7 @@ function switchTab(tabName: string, updateUrl = true) {
     const isTarget = btn.dataset.tab === tabName;
     btn.setAttribute('aria-selected', String(isTarget));
   });
+  openAboutBtn?.classList.toggle('active-header-btn', tabName === 'about');
   const panes: Record<string, HTMLElement | null> = {
     about: document.getElementById('tab-about'),
     clusters: document.getElementById('tab-clusters'),
@@ -361,8 +402,21 @@ tabBtns.forEach((btn) => {
 });
 
 openAboutBtn?.addEventListener('click', () => {
+  if (!behindTheScenes && currentTab === 'about') {
+    switchTab('overlap');
+    return;
+  }
   switchTab('about');
-  document.getElementById('tab-about')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  document.querySelector<HTMLElement>('.tab-content')?.scrollTo({ top: 0 });
+});
+
+closeAboutSimpleBtn?.addEventListener('click', () => {
+  switchTab('overlap');
+});
+
+behindScenesBtn?.addEventListener('click', () => {
+  setBehindTheScenes(!behindTheScenes);
+  updateStatusBadgeText();
 });
 
 function getSelectedOverlapStrategy(): { strategy: OverlapStrategy; threshold: number } {
@@ -1413,6 +1467,9 @@ document.querySelectorAll<HTMLButtonElement>('.example-word-chip').forEach((chip
     const word = chip.dataset.exampleWord;
     if (!word) return;
     wordsInput.value = word;
+    if (!behindTheScenes) {
+      switchTab('overlap');
+    }
     loadGalaxy();
   });
 });

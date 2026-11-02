@@ -163,11 +163,49 @@ body {
   line-height: 1.58;
 }
 
+.about-card-top {
+  display: flex;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-block-end: 0.65rem;
+}
+
 .about-card-heading {
-  margin-block: 0 0.65rem;
+  margin: 0;
   font-size: 0.98rem;
   font-weight: 700;
   color: var(--text-main);
+}
+
+.simple-clusters-header {
+  display: flex;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-block-end: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  font-size: 0.8rem;
+}
+
+.simple-clusters-header strong {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--text-main);
+}
+
+.simple-clusters-header span {
+  color: var(--text-muted);
+}
+
+.btn[aria-pressed='true'],
+.btn.active-header-btn {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background-color: var(--accent-subtle);
 }
 
 .about-card p {
@@ -327,10 +365,41 @@ body {
   min-block-size: 0;
 }
 
+/* Front / Simple mode (before clicking "Bak kulissene"): 2-panel [innhold, graf] without annotations */
+.workspace.is-simple-mode {
+  grid-template-columns: minmax(310px, 0.85fr) minmax(0, 1.55fr);
+}
+
+.workspace.is-simple-mode .tab-nav,
+.workspace.is-simple-mode .behind-scenes-only,
+.workspace.is-simple-mode .overlap-submeta,
+.workspace.is-simple-mode .pill-badge {
+  display: none !important;
+}
+
+.workspace.is-simple-mode .word-pill-added {
+  border-style: solid;
+  border-color: var(--border-color);
+  background-color: var(--bg-surface);
+}
+
+.workspace.is-simple-mode .word-pill-bridge {
+  font-weight: 500;
+}
+
+.workspace:not(.is-simple-mode) .simple-clusters-header,
+.workspace:not(.is-simple-mode) #close-about-simple-btn {
+  display: none !important;
+}
+
 @media (max-width: 1024px) {
   .workspace {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto minmax(440px, 58dvh);
+  }
+  .workspace.is-simple-mode {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(440px, 58dvh);
   }
 }
 
