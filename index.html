@@ -204,25 +204,29 @@
         <div class="tab-content">
           <!-- Tab 1: Clustre -->
           <section id="tab-clusters" class="tab-pane" role="tabpanel">
-            <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-block-end: 0.75rem;
-              "
-            >
-              <span style="font-size: 0.82rem; color: var(--text-muted)">
-                Klikk på et cluster eller ord for å utheve det i grafen.
-              </span>
-              <button type="button" id="clear-highlight-btn" class="btn btn-sm" hidden>
-                Vis alle
-              </button>
+            <div class="overlap-controls" style="margin-block-end: 0.75rem">
+              <div class="overlap-strategy-bar">
+                <label for="cluster-algo-select">Klyngealgoritme:</label>
+                <select id="cluster-algo-select" class="select-control select-sm">
+                  <option value="leiden" selected>
+                    Leiden (vel-sammenhengende, anbefalt)
+                  </option>
+                  <option value="louvain">Louvain (klassisk modularitet)</option>
+                </select>
+                <button type="button" id="clear-highlight-btn" class="btn btn-sm" hidden>
+                  Vis alle
+                </button>
+              </div>
+              <div class="overlap-intro">
+                <span>
+                  Klikk på et cluster eller ord for å utheve det i grafen.
+                </span>
+              </div>
             </div>
             <div id="clusters-container"></div>
           </section>
 
-          <!-- Tab 2: Overlappsclustre (Louvain + Linjegraf + Lekkasjestopper) -->
+          <!-- Tab 2: Overlappsclustre (Leiden/Louvain + Linjegraf + Lekkasjestopper) -->
           <section id="tab-overlap" class="tab-pane" role="tabpanel" hidden>
             <div class="overlap-controls">
               <div class="overlap-intro">
@@ -233,7 +237,12 @@
                 </span>
               </div>
               <div class="overlap-strategy-bar">
-                <label for="overlap-strategy-select">Tilknytningsstrategi:</label>
+                <label for="overlap-base-algo-select">Anker:</label>
+                <select id="overlap-base-algo-select" class="select-control select-sm">
+                  <option value="leiden" selected>Leiden</option>
+                  <option value="louvain">Louvain</option>
+                </select>
+                <label for="overlap-strategy-select">Utvidelse:</label>
                 <select id="overlap-strategy-select" class="select-control select-sm">
                   <option value="shielded" selected>
                     L(G) + lekkasjestopper (støtte ≥ 2, anbefalt)

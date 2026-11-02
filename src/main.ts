@@ -1,13 +1,15 @@
 import './style.css';
 import {
+  BaseClusterAlgorithm,
   CliqueGroup,
-  computeOverlapAnalysis,
   CorpusType,
   fetchGalaxyGraph,
   findAllSimplePaths,
   findShortestPath,
   GalaxyGraph,
   GraphNode,
+  OverlapStrategy,
+  recomputeGraphClustering,
 } from './graph';
 import { GraphVisualizer } from './visualizer';
 
@@ -46,6 +48,10 @@ const inspSoloWordBtn = document.getElementById('insp-solo-word-btn') as HTMLBut
 // Tabs & Containers
 const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
 const clustersContainer = document.getElementById('clusters-container') as HTMLElement;
+const clusterAlgoSelect = document.getElementById('cluster-algo-select') as HTMLSelectElement;
+const overlapBaseAlgoSelect = document.getElementById(
+  'overlap-base-algo-select'
+) as HTMLSelectElement;
 const clearHighlightBtn = document.getElementById('clear-highlight-btn') as HTMLButtonElement;
 const overlapStrategySelect = document.getElementById(
   'overlap-strategy-select'
@@ -238,58 +244,39 @@ tabBtns.forEach((btn) => {
   });
 });
 
+function getSelectedOverlapStrategy(): { strategy: OverlapStrategy; threshold: number } {
+  const mode = overlapStrategySelect.value;
+  if (mode === 'threshold_020') return { strategy: 'threshold', threshold: 0.2 };
+  if (mode === 'threshold_012') return { strategy: 'threshold', threshold: 0.12 };
+  if (mode === 'best_overlap') return { strategy: 'best_overlap', threshold: 0.25 };
+  if (mode === 'clique_hybrid') return { strategy: 'clique_hybrid', threshold: 0.25 };
+  return { strategy: 'shielded', threshold: 0.25 };
+}
+
 function recomputeAndRenderOverlap() {
   if (!currentGraph) return;
-  const mode = overlapStrategySelect.value;
-  if (mode === 'threshold_020') {
-    currentGraph.overlap = computeOverlapAnalysis(
-      currentGraph.nodes,
-      currentGraph.adjUndirected,
-      currentGraph.clusters,
-      currentGraph.cliques,
-      'threshold',
-      0.2
-    );
-  } else if (mode === 'threshold_012') {
-    currentGraph.overlap = computeOverlapAnalysis(
-      currentGraph.nodes,
-      currentGraph.adjUndirected,
-      currentGraph.clusters,
-      currentGraph.cliques,
-      'threshold',
-      0.12
-    );
-  } else if (mode === 'best_overlap') {
-    currentGraph.overlap = computeOverlapAnalysis(
-      currentGraph.nodes,
-      currentGraph.adjUndirected,
-      currentGraph.clusters,
-      currentGraph.cliques,
-      'best_overlap',
-      0.25
-    );
-  } else if (mode === 'clique_hybrid') {
-    currentGraph.overlap = computeOverlapAnalysis(
-      currentGraph.nodes,
-      currentGraph.adjUndirected,
-      currentGraph.clusters,
-      currentGraph.cliques,
-      'clique_hybrid',
-      0.25
-    );
-  } else {
-    currentGraph.overlap = computeOverlapAnalysis(
-      currentGraph.nodes,
-      currentGraph.adjUndirected,
-      currentGraph.clusters,
-      currentGraph.cliques,
-      'shielded',
-      0.25
-    );
-  }
+  const baseAlgo = (clusterAlgoSelect.value || 'leiden') as BaseClusterAlgorithm;
+  const { strategy, threshold } = getSelectedOverlapStrategy();
+  recomputeGraphClustering(currentGraph, baseAlgo, strategy, threshold);
+
+  renderClusters(currentGraph);
   renderOverlapClusters(currentGraph);
+  renderCliques(currentGraph);
+  renderCentralityTable(currentGraph);
+  visualizer.render();
+  statusBadge.textContent = `${currentGraph.nodes.size} noder · ${currentGraph.edges.length} kanter · ${currentGraph.clusters.length} clustre (${baseAlgo === 'leiden' ? 'Leiden' : 'Louvain'})`;
   if (currentSelectedNode) updateInspector(currentSelectedNode);
 }
+
+clusterAlgoSelect.addEventListener('change', () => {
+  overlapBaseAlgoSelect.value = clusterAlgoSelect.value;
+  recomputeAndRenderOverlap();
+});
+
+overlapBaseAlgoSelect.addEventListener('change', () => {
+  clusterAlgoSelect.value = overlapBaseAlgoSelect.value;
+  recomputeAndRenderOverlap();
+});
 
 overlapStrategySelect.addEventListener('change', () => {
   recomputeAndRenderOverlap();
@@ -334,11 +321,12 @@ function renderOverlapClusters(graph: GalaxyGraph) {
       ? `<span class="meta-tag meta-tag-accent" title="Kollapsede klynger med Jaccard-likhet ≥ 0.85 slått sammen">Jaccard-deduplisert: −${ov.deduplicatedCount} kollaps</span>`
       : '';
 
+  const baseName = clusterAlgoSelect.value === 'leiden' ? 'Leiden' : 'Louvain';
   const cmpLine = document.createElement('div');
   cmpLine.className = 'overlap-submeta';
   cmpLine.style.marginBlockEnd = '0.8rem';
   cmpLine.innerHTML = `
-    <span class="meta-tag" title="Vanlig Louvain har 100 % dekning men 0 % overlapp">Louvain: 100 % dekning (1.00/node)</span>
+    <span class="meta-tag" title="Grunnpartisjoneringen (${baseName}) har 100 % dekning men 0 % overlapp">${baseName}: 100 % dekning (1.00/node)</span>
     <span class="meta-tag" title="Klikk-perkolasjon (k=3) mister noder utenfor trekanter">Klikk k=3: ${ov.cpmCoveragePercentage.toFixed(1)} % dekning (${ov.cpmCoveredNodes}/${graph.nodes.size})</span>
     <span class="meta-tag meta-tag-accent" title="Minste kolleksjon av overlappsclustre som dekker 100 % av nodene">Set-cover: ${ov.setCoverCount} av ${ov.clusters.length} clustre</span>
     ${shieldSummaryTag}

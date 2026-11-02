@@ -50,6 +50,8 @@ export interface CliqueGroup {
   clusterSpread: CliqueClusterShare[];
 }
 
+export type BaseClusterAlgorithm = 'leiden' | 'louvain';
+
 export type OverlapStrategy =
   | 'shielded'
   | 'clique_hybrid'
@@ -238,8 +240,8 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
     });
   }
 
-  // Detect Louvain communities & name clusters like gnl.community_dict(G)
-  const clusters = computeLouvainClusters(nodes, adjUndirected);
+  // Detect base communities (Leiden by default, or Louvain) & name clusters like gnl.community_dict(G)
+  const clusters = computeBaseClusters(nodes, adjUndirected, 'leiden');
 
   // Compute k-clique communities & inclusion tree like gnl.kcliques + gnl.subsetgraph
   const cliques = computeKCliqueCommunities(nodes, adjUndirected);
@@ -523,12 +525,195 @@ function runMultilevelLouvain(initialAdj: Map<number, number>[]): Int32Array {
 }
 
 /**
- * Louvain modularity maximization on the undirected weighted graph,
+ * Deterministic Leiden community detection (Traag, Waltman & van Eck, 2019):
+ * 1. Fast queue-based local moving in canonical degree order (only neighbors outside the target community are re-queued).
+ * 2. Refinement phase guaranteeing internally connected sub-communities (splitting disconnected components).
+ * 3. Well-connected aggregation guarded by Constant Potts Model (CPM) edge-density threshold gammaCpm,
+ *    preventing independent branches around a high-degree hub from collapsing into one heterogeneous cluster.
+ */
+function runLeiden(initialAdj: Map<number, number>[], gammaCpm: number = 0.05): Int32Array {
+  const N = initialAdj.length;
+  const finalComm = new Int32Array(N);
+  for (let i = 0; i < N; i++) finalComm[i] = i;
+  if (N === 0) return finalComm;
+
+  let m2 = 0;
+  const kNode = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    let deg = 0;
+    for (const [j, w] of initialAdj[i].entries()) {
+      const contrib = i === j ? 2 * w : w;
+      m2 += contrib;
+      deg += contrib;
+    }
+    kNode[i] = deg;
+  }
+  if (m2 <= 0) return finalComm;
+
+  // Canonical node order: ascending unweighted degree, then index
+  const order = Array.from({ length: N }, (_, i) => i).sort((a, b) => {
+    const da = initialAdj[a].size;
+    const db = initialAdj[b].size;
+    return da !== db ? da - db : a - b;
+  });
+
+  // Phase 1: Fast local moving with active queue
+  const comm = new Int32Array(N);
+  const sigmaTot = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    comm[i] = i;
+    sigmaTot[i] = kNode[i];
+  }
+
+  const inQueue = new Uint8Array(N);
+  const queue: number[] = [...order];
+  for (const i of queue) inQueue[i] = 1;
+
+  let steps = 0;
+  const maxSteps = N * 25;
+  while (queue.length > 0 && steps < maxSteps) {
+    const i = queue.shift()!;
+    inQueue[i] = 0;
+    steps++;
+
+    const cOld = comm[i];
+    const ki = kNode[i];
+    sigmaTot[cOld] -= ki;
+    comm[i] = -1;
+
+    const commWeights = new Map<number, number>();
+    commWeights.set(cOld, 0);
+
+    for (const [j, w] of initialAdj[i].entries()) {
+      if (i === j) continue;
+      const cj = comm[j];
+      if (cj >= 0) {
+        commWeights.set(cj, (commWeights.get(cj) ?? 0) + w);
+      }
+    }
+
+    let bestComm = cOld;
+    let bestGain = -Infinity;
+
+    for (const [cCand, kIn] of commWeights.entries()) {
+      const gain = kIn - (sigmaTot[cCand] * ki) / m2;
+      if (gain > bestGain + 1e-12) {
+        bestGain = gain;
+        bestComm = cCand;
+      }
+    }
+
+    comm[i] = bestComm;
+    sigmaTot[bestComm] += ki;
+
+    if (bestComm !== cOld) {
+      for (const j of initialAdj[i].keys()) {
+        if (comm[j] !== bestComm && !inQueue[j]) {
+          inQueue[j] = 1;
+          queue.push(j);
+        }
+      }
+    }
+  }
+
+  // Phase 2: Leiden refinement — ensure every community is internally connected
+  const rawGroups = new Map<number, number[]>();
+  for (let i = 0; i < N; i++) {
+    const c = comm[i];
+    if (!rawGroups.has(c)) rawGroups.set(c, []);
+    rawGroups.get(c)!.push(i);
+  }
+
+  const refinedComms: number[][] = [];
+  for (const group of rawGroups.values()) {
+    const groupSet = new Set(group);
+    const visited = new Set<number>();
+    for (const start of group) {
+      if (visited.has(start)) continue;
+      const comp: number[] = [start];
+      visited.add(start);
+      const bfs = [start];
+      while (bfs.length > 0) {
+        const curr = bfs.shift()!;
+        for (const nbr of initialAdj[curr].keys()) {
+          if (groupSet.has(nbr) && !visited.has(nbr)) {
+            visited.add(nbr);
+            comp.push(nbr);
+            bfs.push(nbr);
+          }
+        }
+      }
+      refinedComms.push(comp);
+    }
+  }
+
+  // Phase 3: Aggregate well-connected refined communities (modularity gain > 0 AND CPM edge density >= gammaCpm)
+  let merged = true;
+  while (merged) {
+    merged = false;
+    let bestPair: [number, number] | null = null;
+    let bestModGain = 0;
+
+    for (let a = 0; a < refinedComms.length; a++) {
+      const Ra = refinedComms[a];
+      let sigA = 0;
+      for (const u of Ra) sigA += kNode[u];
+
+      for (let b = a + 1; b < refinedComms.length; b++) {
+        const Rb = refinedComms[b];
+        const setB = new Set(Rb);
+        let wAB = 0;
+        let edgeCountAB = 0;
+
+        for (const u of Ra) {
+          for (const [v, w] of initialAdj[u].entries()) {
+            if (setB.has(v)) {
+              wAB += w;
+              edgeCountAB++;
+            }
+          }
+        }
+
+        if (edgeCountAB === 0) continue;
+        const density = edgeCountAB / (Ra.length * Rb.length);
+        if (density < gammaCpm) continue;
+
+        let sigB = 0;
+        for (const v of Rb) sigB += kNode[v];
+
+        const modGain = wAB - (sigA * sigB) / m2;
+        if (modGain > bestModGain + 1e-12) {
+          bestModGain = modGain;
+          bestPair = [a, b];
+        }
+      }
+    }
+
+    if (bestPair) {
+      const [a, b] = bestPair;
+      refinedComms[a] = [...refinedComms[a], ...refinedComms[b]];
+      refinedComms.splice(b, 1);
+      merged = true;
+    }
+  }
+
+  refinedComms.forEach((comp, cid) => {
+    for (const u of comp) {
+      finalComm[u] = cid;
+    }
+  });
+
+  return finalComm;
+}
+
+/**
+ * Base community detection (Leiden or Louvain) on the undirected weighted graph,
  * followed by cluster naming by top-2 degree nodes as in gnl.community_dict(G).
  */
-function computeLouvainClusters(
+export function computeBaseClusters(
   nodes: Map<string, GraphNode>,
-  adjUndirected: Map<string, Map<string, number>>
+  adjUndirected: Map<string, Map<string, number>>,
+  algorithm: BaseClusterAlgorithm = 'leiden'
 ): ClusterGroup[] {
   const nodeIds = Array.from(nodes.keys());
   const N = nodeIds.length;
@@ -549,7 +734,8 @@ function computeLouvainClusters(
     }
   }
 
-  const partition = runMultilevelLouvain(indexedAdj);
+  const partition =
+    algorithm === 'leiden' ? runLeiden(indexedAdj, 0.05) : runMultilevelLouvain(indexedAdj);
 
   // Group nodes by community
   const rawGroups = new Map<number, string[]>();
@@ -597,6 +783,58 @@ function computeLouvainClusters(
   });
 
   return clusters;
+}
+
+/**
+ * Recompute base clusters (Leiden or Louvain), update clique cluster-spread, and recompute L(G) overlap clusters.
+ */
+export function recomputeGraphClustering(
+  graph: GalaxyGraph,
+  algorithm: BaseClusterAlgorithm,
+  overlapStrategy: OverlapStrategy,
+  jaccardThreshold: number = 0.25
+): void {
+  graph.clusters = computeBaseClusters(graph.nodes, graph.adjUndirected, algorithm);
+
+  // Refresh clusterSpread and dominant color on each k-clique community
+  for (const clique of graph.cliques) {
+    const spreadMap = new Map<number, { label: string; color: string; words: string[] }>();
+    for (const w of clique.words) {
+      const n = graph.nodes.get(w);
+      const cid = n?.communityId ?? 0;
+      const clbl = n?.communityLabel || `Cluster ${cid}`;
+      const ccol = n?.color || CLUSTER_COLORS[0];
+      if (!spreadMap.has(cid)) {
+        spreadMap.set(cid, { label: clbl, color: ccol, words: [] });
+      }
+      spreadMap.get(cid)!.words.push(w);
+    }
+
+    clique.clusterSpread = Array.from(spreadMap.entries())
+      .map(([clusterId, info]) => ({
+        clusterId,
+        clusterLabel: info.label,
+        color: info.color,
+        count: info.words.length,
+        share: clique.words.length > 0 ? info.words.length / clique.words.length : 0,
+        words: info.words,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    clique.color =
+      clique.clusterSpread[0]?.color ??
+      graph.nodes.get(clique.words[0])?.color ??
+      CLUSTER_COLORS[0];
+  }
+
+  graph.overlap = computeOverlapAnalysis(
+    graph.nodes,
+    graph.adjUndirected,
+    graph.clusters,
+    graph.cliques,
+    overlapStrategy,
+    jaccardThreshold
+  );
 }
 
 /**
