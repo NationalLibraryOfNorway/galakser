@@ -1,0 +1,449 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[norsk]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{microtype}
+
+\geometry{margin=2.5cm}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
+
+\newtheorem{definition}{Definisjon}
+\newtheorem{proposition}{Proposisjon}
+
+\title{\textbf{Fra koordinasjonsnettverk til meningsgalakser:\\
+Kontrollert klyngeoverlapp via Leiden-forankring, grad-penalisert linjegraf $L(G)$,\\
+topologisk lekkasjestopper og entropibasert hub-sanering}}
+
+\author{Lars G.\ Johnsen \\
+Nasjonalbiblioteket (DH-lab) \\
+\texttt{https://github.com/NationalLibraryOfNorway/galakser}}
+
+\date{Utkast frem mot DHNB 2027}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Koordinasjonsuttrykk av typen «$X$ og $Y$» i store historiske tekstkorpora gir et kraftfullt grunnlag for å modellere semantiske slektskap og emnestrukturer som nettverk ($G$). Et grunnleggende metodisk dilemma i grafbasert leksikalsk semantikk er imidlertid spenningen mellom \emph{fullstendig nodedekning} og \emph{evnen til å representere polysemi og homonymi}. Klassiske partisjoneringsalgoritmer (Louvain, Leiden) tvinger hvert ord inn i nøyaktig én klynge og skjuler dermed flertydighet, mens stive strukturmetoder som $k$-klikk-perkolasjon (CPM) mister $20\text{--}35\,\%$ av ordforrådet og kan perkolere ukontrollert på tvers av modulgrensene. Kantklynging via linjegrafen $L(G)$ bevarer alle noder og tillater overlapp, men lider av \emph{stjerne-eksplosjon}: høygradige knutepunkter $v$ induserer komplette klikker $K_{\deg(v)}$ i $L(G)$ som forårsaker massiv kryss-domene-lekkasje mellom urelaterte betydninger.
+
+I denne artikkelen presenterer vi en helhetlig teoretisk og algoritmisk pipeline som forener disse perspektivene. Vi starter med en strukturell forankring i primærgrafen $G$, det strengt hierarkiske inklusjonstreet av $k$-klikker ($\mathcal{T}_k$) og en tetthetsforankret Leiden-partisjonering. Deretter «knaes» klyngene gjennom fire moduler: (A) en Adamic--Adar-vektet linjegraf $L_w(G)$ som demper stjerne-nav, (B) klyngeutvidelse med en topologisk lekkasjestopper ($|\mathcal{N}_G(w) \cap C_k| \ge 2$) som krever trekantforankring i grunnklyngen, (C) Jaccard-deduplisering av kollapsede randklynger, og (D) et informasjonsteoretisk filter basert på normalisert medlemskapsentropi $H_{\text{norm}}(C_i)$ og innovasjonsgrad $I(C_i)$ som fjerner uoppløste parasitt-/hub-klynger. Vi viser hvordan metoden gir en operasjonell definisjon av et ords distinkte hovedbetydninger versus sekundære randsoneklynger, illustrert med empiriske analyser fra Nasjonalbibliotekets digitale korpus (bl.a.\ \emph{pålegg}, \emph{overlast}, \emph{is} og \emph{demokrati}).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Innledning og problemstilling}
+% =============================================================================
+
+Sideordnede konstruksjoner («brød og smør», «pålegg og instrukser», «is og snø», «is og brus») har lenge vært anerkjent som en av de mest presise lingvistiske markørene for semantisk ko-hyponymi og domenetilhørighet \cite{hearst1992automatic, widdows2002graph, dorow2003discovering}. Fordi sideordningen krever at leddene er funksjonelt og pragmatisk sidestilte i den aktuelle konteksten, fungerer et nettverk bygget fra trigramsøk av typen «$X$ og $Y$» som et empirisk destillat av hvordan språkbrukerne kategoriserer verden.
+
+Når vi bygger en lokal «ordgalakse» $G = (V, E)$ ved å ekspandere koordinasjoner i ett til to hopp ut fra ett eller flere søkeord, står vi overfor tre strukturelle utfordringer:
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Homonymi og polysemi i knutepunkter:} Dersom vi søker på et homonymt eller polysemt ord $w_0$ (f.eks.\ \emph{pålegg} som matvare versus rettslig direktiv, eller \emph{overlast} som fysisk overgrep versus teknisk havari), vil $w_0$ stå som et høygradig stjernenav i sentrum av grafen med kanter ut til ellers disjunkte semantiske verdener.
+  \item \textbf{Dekning vs.\ overlapp-dilemmaet:}
+    \begin{itemize}
+      \item \emph{Disjunkt partisjonering} (Louvain \cite{blondel2008fast}, Leiden \cite{traag2019louvain}) gir $100\,\%$ nodedekning, men tvinger hvert ord inn i nøyaktig én klynge ($1{,}00$ klynger per node). Dermed rives selve målordet $w_0$ bort fra alle sine betydninger unntatt én.
+      \item \emph{Klikk-perkolasjon} (CPM \cite{palla2005uncovering}) tillater overlapp gjennom delte trekanter ($k=3$), men utelater alle noder som ikke inngår i minst én trekant (typisk $20\text{--}35\,\%$ av grafen) og kan smelte sammen ulike deltemaer gjennom tette broer.
+    \end{itemize}
+  \item \textbf{Lekkasje og hub-kollaps i linjegrafen $L(G)$:} Ved å flytte klyngingen fra noder til kanter via linjegrafen $L(G)$ \cite{evans2009line, ahn2010link} får hver node lov til å arve klyngetilhørighet fra alle sine tilstøtende kanter. Men i en uveid linjegraf blir et knutepunkt $v$ med grad $d = \deg_G(v)$ til en komplett klikk $K_d$ med $\binom{d}{2}$ kanter i $L(G)$. Under tilknytning mellom grunnklynger og kantklynger fører denne stjerne-klikken til at ord fra helt fremmede domener (f.eks.\ \emph{pølser} eller \emph{vold}) trekkes ukritisk inn i nabo-klynger som kun deler én enkelt kant med navet.
+\end{enumerate}
+
+Målet med rammeverket som beskrives her er å etablere en matematisk veldefinert og deterministisk pipeline som:
+\begin{enumerate}[label=(\roman*)]
+  \item bevarer $100\,\%$ av nodene i grafen,
+  \item plasserer polyseme og homonyme ord i samtlige av deres reelle betydningsklynger,
+  \item blokkerer falsk kryss-domene-lekkasje via et topologisk trekant-skjold, og
+  \item identifiserer og fjerner uoppløste parasitt-/hub-klynger ved hjelp av klynge-entropi og innovasjonsgrad.
+\end{enumerate}
+
+% =============================================================================
+\section{Grunnstrukturene: Koordinasjonsgrafen $G$, klikk-treet $\mathcal{T}_k$ og linjegrafen $L(G)$}
+% =============================================================================
+
+\subsection{Koordinasjonsgrafen $G = (V, E, w)$}
+La $G_{\text{dir}} = (V, E_{\text{dir}}, w)$ være en rettet, vektet graf der nodemengden $V$ består av unike ordformer (etter alfanumerisk filtrering og fjerning av selv-løkker), og der en rettet kant $(u, v) \in E_{\text{dir}}$ representerer en observert koordinasjonsrelasjon med vekt $w(u, v) > 0$ (basert på frekvens eller assosiasjonsstyrke i korpuset). For strukturell klynging og klikkanalyse betrakter vi også den tilhørende urettede grafen $G = (V, E, w)$, der $\mathcal{N}_G(u) = \{v \in V : \{u, v\} \in E\}$ betegner nabolaget til $u$, og $\deg_G(u) = |\mathcal{N}_G(u)|$ er nodens urettede grad.
+
+For å rangere og navngi strukturer konsistent beregnes tre klassiske sentralitetsmål på $G$:
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Gradsentralitet:} $C_D(u) = \frac{\deg^{\text{inn}}(u) + \deg^{\text{ut}}(u)}{|V| - 1}$.
+  \item \textbf{Mellomliggenhet (Betweenness centrality \cite{brandes2001faster}):}
+    \[
+      C_B(v) = \frac{1}{(|V|-1)(|V|-2)} \sum_{s \ne v \ne t} \frac{\sigma_{st}(v)}{\sigma_{st}},
+    \]
+    som fanger opp ord som fungerer som strukturelle broer mellom ulike semantiske øyer.
+  \item \textbf{Nærhetssentralitet (Closeness centrality \cite{wasserman1994social}):} Beregnet med Wasserman--Faust-skalering over sammenhengende komponenter.
+\end{enumerate}
+
+Alle klynger og klikker navngis kanonisk ved sine to mest sentrale ord, f.eks.\ \texttt{pålegg-pølser} eller \texttt{instrukser-retningslinjer}.
+
+\subsection{$k$-klikk-perkolasjon og det hierarkiske inklusjonstreet $\mathcal{T}_k$}
+En \emph{klikk} $Q \subseteq V$ er en delmengde av noder der ethvert par av noder er forbundet med en kant i $G$ ($\forall u, v \in Q,\, u \ne v \implies \{u, v\} \in E$). Vi finner først alle maksimale klikker med $\ge 3$ noder ved hjelp av Bron--Kerbosch-algoritmen med pivotering \cite{bron1973algorithm}.
+
+\begin{definition}[$k$-klikk-samfunn \cite{palla2005uncovering, everett1998analyzing}]
+For et gitt heltall $k \ge 3$ defineres klikk-grafen $\mathcal{G}_k$ ved at to maksimale klikker $Q_a, Q_b$ (med $|Q_a|, |Q_b| \ge k$) har en kant mellom seg dersom og bare dersom de deler minst $k - 1$ noder:
+\[
+  |Q_a \cap Q_b| \ge k - 1.
+\]
+Et $k$-klikk-samfunn $C^{(k)}_r \subseteq V$ er unionen av nodene i en sammenhengende komponent $r$ i $\mathcal{G}_k$.
+\end{definition}
+
+En fundamental, men ofte underutnyttet egenskap ved sekvensen av $k$-klikk-samfunn for $k = 3, 4, \dots, k_{\max}$ er at de danner et \textbf{strengt inklusjonshierarki} (\texttt{subsetgraph}):
+
+\begin{proposition}[Hierarkisk inklusjon av $k$-klikk-samfunn]
+La $C^{(k+1)}_a$ være et $(k+1)$-klikk-samfunn i $G$. Da finnes det et unikt $k$-klikk-samfunn $C^{(k)}_b$ slik at
+\[
+  C^{(k+1)}_a \subseteq C^{(k)}_b.
+\]
+\end{proposition}
+\begin{proof}
+Enhver maksimal klikk $Q$ med $|Q| \ge k+1$ oppfyller trivielt $|Q| \ge k$. Dersom to slike klikker $Q_1, Q_2$ er $(k+1)$-naboer ($|Q_1 \cap Q_2| \ge k$), oppfyller de også $|Q_1 \cap Q_2| \ge k - 1$ og er dermed $k$-naboer. Enhver sammenhengende komponent i $\mathcal{G}_{k+1}$ er følgelig inneholdt i en unik sammenhengende komponent i $\mathcal{G}_k$.
+\end{proof}
+
+Dette gir en streng tre-struktur $\mathcal{T}_k$ der toppklikkene på nivå $k=3$ (\texttt{3-1}, \texttt{3-2}, $\dots$) utgjør røttene (hovedinndelingene), og der hver rot ved stigende $k$ forgrener seg nedover i tettere $4$-klikker og $5$-klikker som krystalliserer ut underbetydninger og kjerner.
+
+\subsection{Linjegrafen (dualgrafen) $L(G)$}
+Mens primærgrafen $G$ har ord som noder og relasjoner som kanter, snur \textbf{linjegrafen} (eller dualgrafen) $L(G)$ dette forholdet på hodet \cite{harary1960some, evans2009line, ahn2010link}:
+
+\begin{definition}[Linjegraf $L(G)$]
+Gitt en urettet graf $G = (V, E)$, er linjegrafen $L(G) = (E, E_L)$ grafen der:
+\begin{itemize}
+  \item hver kant $e = \{u, v\} \in E$ i $G$ er en node i $L(G)$, og
+  \item to noder $e_1, e_2 \in E$ i $L(G)$ er forbundet med en kant $\{e_1, e_2\} \in E_L$ dersom $e_1$ og $e_2$ deler en felles endenode $v \in V$ ($e_1 \cap e_2 = \{v\}$).
+\end{itemize}
+\end{definition}
+
+Når vi partisjonerer nodene i $L(G)$ i disjunkte kantklynger $\{D_1, D_2, \dots, D_m\}$ og projiserer hver kantklynge tilbake til ordmengden $V(D_r) = \bigcup_{\{u, v\} \in D_r} \{u, v\}$, oppstår overlapp helt naturlig: et polysemt ord $v$ som har både mat-kanter ($\{\text{pålegg}, \text{smør}\}$) og juridiske kanter ($\{\text{pålegg}, \text{instrukser}\}$) vil få sine kanter fordelt på ulike kantklynger i $L(G)$, og dermed tilhøre flere ordklynger samtidig.
+
+\paragraph{Stjerne-paradokset i uveide linjegrafer:}
+Hver node $v \in V$ med grad $d = \deg_G(v)$ har $d$ tilstøtende kanter som alle møtes i $v$. I en uveid linjegraf $L(G)$ utgjør disse $d$ kantene en \textbf{komplett klikk $K_d$} med $\binom{d}{2} = \frac{d(d-1)}{2}$ kanter. For et søkeord med $d = 25$ bidrar dette ene knutepunktet med $300$ kanter i $L(G)$, mens en lokal klynge i periferien kanskje bare har $10\text{--}15$ kanter. Modularitetsmaksimering på en uveid $L(G)$ vil derfor ofte klumpe alle stjernekantene rundt søkeordet sammen til én gigantisk dualklynge $D_{\text{stjerne}}$ som spenner på tvers av urelaterte domener \cite{evans2009line}.
+
+% =============================================================================
+\section{Grunnpartisjonering: Fra Louvain til Leiden og klikk-spredning}
+% =============================================================================
+
+\subsection{Louvain vs.\ Leiden som topologisk anker}
+For å etablere et sett av disjunkte grunnklynger $\{C_1, C_2, \dots, C_K\}$ på $G$ benyttes vanligvis modularitetsmaksimering \cite{newman2004finding}:
+\begin{equation}
+  Q = \frac{1}{2m} \sum_{u, v \in V} \left( w(u, v) - \gamma \frac{k_u k_v}{2m} \right) \delta(c_u, c_v),
+\end{equation}
+der $k_u = \sum_{v} w(u, v)$ og $2m = \sum_u k_u$.
+
+\textbf{Louvain-algoritmen} \cite{blondel2008fast} maksimerer $Q$ i to gjentatte faser: (1) lokal grådig flytting av enkeltord, og (2) direkte aggregering av klyngene til supernoder. Som påvist av Traag, Waltman og van Eck \cite{traag2019louvain}, har Louvain imidlertid en strukturell defekt som slår særlig hardt ut i ordgalakser med et sentralt stjernenav:
+\begin{itemize}
+  \item Under fase~2 i Louvain behandles hele klyngen som inneholder søkeordet $w_0$ som én supernode. Mindre stjernegrener (f.eks.\ \emph{henstillinger--resolusjoner}, \emph{tvangsmulkt--overtredelsesgebyr}, \emph{posteier--salater} og \emph{pølsevarer--flesk} i grafen for «pålegg») som hver kun har én enkelt kant inn til navet $w_0$ og \textbf{null kanter seg imellom}, blir i fase~2 slukt inn i samme supernode fordi straffeleddet $\frac{\Sigma_A \Sigma_B}{2m}$ er lite sammenlignet med kantvekten inn til $w_0$.
+  \item Resultatet i Louvain er en internt usammenhengende «sekkeklynge» (\texttt{pålegg-henstillinger} på 52 ord) som faller fra hverandre i 9 separate komponenter så snart navet \emph{pålegg} fjernes.
+\end{itemize}
+
+\textbf{Leiden-algoritmen} \cite{traag2019louvain} løser dette ved å innføre:
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Rask købasert lokal flytting} i kanonisk gradrekkefølge, der kun naboer utenfor mål-klyngen legges tilbake i køen.
+  \item \textbf{En eksplisitt \emph{refinement}-fase} som garanterer at hver delklynge er internt sammenhengende før aggregering.
+  \item \textbf{Tetthetsforankret aggregering (Constant Potts Model / CPM-skranke):} To delklynger $R_a, R_b$ slås kun sammen dersom de både gir positiv modularitetsgevinst ($\Delta Q > 0$) \emph{og} tilfredsstiller kravet til relasjonstetthet:
+    \begin{equation}
+      \frac{|E(R_a, R_b)|}{|R_a| \cdot |R_b|} \ge \gamma_{\text{CPM}} \quad (\gamma_{\text{CPM}} = 0{,}05).
+    \end{equation}
+\end{enumerate}
+Dermed holdes uavhengige stjernegrener rundt navet adskilt som rene grunnklynger (\texttt{pålegg-posteier}, \texttt{henstillinger-advarsler}, \texttt{tvangsmulkt-overtredelsesgebyr}, \texttt{instrukser-retningslinjer}), mens tett sammenvevde delklynger (som \emph{instrukser} og \emph{retningslinjer}, som deler 8 uavhengige kanter) slås naturlig sammen.
+
+\subsection{Clusterspredning for klikker: Tre topologiske regimer}
+Når vi måler hvordan nodene i et $k$-klikk-samfunn $C^{(k)}_r$ fordeler seg utover de disjunkte grunnklyngene $\{C_1, \dots, C_K\}$ via andelene
+\[
+  s_j\big(C^{(k)}_r\big) = \frac{|C^{(k)}_r \cap C_j|}{|C^{(k)}_r|}, \qquad s_{\max} = \max_{1 \le j \le K} s_j\big(C^{(k)}_r\big),
+\]
+avdekkes tre distinkte regimer som belyser samspillet mellom lokal stivhet (trekanter) og global tetthet (modularitet):
+
+\begin{enumerate}[label=\textbf{Regime \arabic*:}, leftmargin=2.4cm]
+  \item \textbf{Ren delmengde ($s_{\max} = 1{,}00$, 1 cluster):} Klikken ligger $100\,\%$ inne i én enkelt grunnklynge og utgjør den tetteste semantiske kjernen i denne klyngen.
+  \item \textbf{Kjerne + bro ($0{,}75 \le s_{\max} < 1{,}00$, typisk 2 clustre):} Nesten hele klikken ligger i én grunnklynge $C_j$, men klikken henter inn $1\text{--}2$ bro-ord fra et annet cluster. For eksempel har $3$-klikken \texttt{3-2 $\cdot$ pålegg-instrukser} (9 ord) 8 av 9 ord ($89\,\%$) i \texttt{instrukser-retningslinjer} og henter inn navet \emph{pålegg} ($11\,\%$). Dette er det direkte topologiske beviset på at målordet danner trekanter inn i denne betydningen.
+  \item \textbf{Tverrgående klikk ($s_{\max} < 0{,}75$, spenner over 3--5 clustre):} Klikken perkolerer gjennom en kjede av delte kanter på tvers av flere beslektede klynger (f.eks.\ \texttt{3-1 $\cdot$ pålegg-pølser} som fordeler 19 matord over 4 mat-klynger, eller \texttt{3-1 $\cdot$ demokrati-rettsstat} over 5 klynger). Dette illustrerer oppløsningsgrensen (\emph{resolution limit} \cite{fortunato2007resolution, lancichinetti2009community}): på nivå $k=3$ flyter klikk-perkolasjonen utover et helt makrodome, men så snart vi går ett trinn ned i inklusjonstreet til $k=4$ og $k=5$, brytes broene og underklikkene faller tilbake til Regime~1 og~2.
+\end{enumerate}
+
+% =============================================================================
+\section{Fire-trinns «knaing» av grafen for kontrollert overlapp (Modul A--D)}
+% =============================================================================
+
+Med grunnklyngene $\{C_1, \dots, C_K\}$ som topologiske ankere utvides og renses klyngene gjennom fire sekvensielle moduler.
+
+\subsection{Modul A: Grad-penalisert linjegraf $L_w(G)$ (Adamic--Adar)}
+For å hindre at et høygradig nav $v \in V$ binder alle sine tilstøtende kanter sammen til én massiv stjerneklikk i $L(G)$, vektes kantene i linjegrafen ned som en funksjon av graden til den delte noden $v$, inspirert av Adamic--Adar-indeksen \cite{adamic2003friends} og ressursallokering \cite{zhou2009predicting, evans2009line}:
+
+\begin{definition}[Grad-penalisert linjegraf $L_w(G)$]
+For to kanter $e_1 = \{u, v\} \in E$ og $e_2 = \{v, w\} \in E$ som møtes i noden $v \in V$, defineres kantvekten i $L_w(G)$ som:
+\begin{equation}
+  W_L(e_1, e_2) = \hat{w}(e_1)\,\hat{w}(e_2) \cdot \psi(\deg_G(v)), \qquad
+  \psi(d) = \begin{cases}
+    \dfrac{1}{\ln(d)} & \text{hvis } d > 2, \\[8pt]
+    1{,}0 & \text{hvis } d \le 2,
+  \end{cases}
+\end{equation}
+der $\hat{w}(e) = 1{,}0$ (enhetsnormalisert topologisk vekt, slik at de ekstreme råfrekvensene i 1.\ hopp ikke overdøver 2.\ hopp).
+\end{definition}
+
+Når $v$ er et spesifikt fagord i periferien med lav grad ($d=3$), er koplingen mellom kantene sterk ($\psi(3) \approx 0{,}91$). Når $v$ derimot er et globalt knutepunkt med $d=25$, reduseres koplingsvekten mellom hvert kantpar til $\psi(25) \approx 0{,}31$.
+
+\subsection{Modul B: Klyngeutvidelse med topologisk lekkasjestopper}
+Selv med grad-penalisert $L_w(G)$ vil en direkte mengdeunion mellom en grunnklynge $C_k$ og dens best overlappende kantklynge $D^*(C_k) = \arg\max_{D_r} |C_k \cap V(D_r)|$ kunne trekke med seg perifere noder som kun deler én enkelt kant med navet. Vi innfører derfor en streng \textbf{forankringstest} (\emph{anti-lekkasje domenesperre}):
+
+\begin{definition}[Klyngeutvidelse med intern støtteskranke]
+Gitt en grunnklynge $C_k \subseteq V$ og kandidatmengden av eksterne noder fra linjegrafen
+\[
+  \mathcal{K}(C_k) = \big(V(D^*(C_k)) \cup \bigcup_{u \in C_k} \mathcal{N}_G(u)\big) \setminus C_k,
+\]
+defineres den interne støtten til en ekstern kandidatnode $w \in \mathcal{K}(C_k)$ som antall naboer $w$ har inne i $C_k$:
+\begin{equation}
+  \text{support}(w, C_k) = |\mathcal{N}_G(w) \cap C_k|.
+\end{equation}
+Den utvidede klyngen $\widetilde{C}_k$ er gitt ved:
+\begin{equation}
+  \widetilde{C}_k = C_k \cup \big\{ w \in \mathcal{K}(C_k) \;\big|\; \text{support}(w, C_k) \ge m_{\min} \big\},
+\end{equation}
+der standardverdien er $m_{\min} = 2$. Kandidatnoder fra $V(D^*(C_k)) \setminus C_k$ med $\text{support}(w, C_k) < 2$ avvises og registreres som blokkerte lekkasjer.
+\end{definition}
+
+\begin{proposition}[Trekant-ekvivalens for $m_{\min} = 2$]
+Dersom grunnklyngen $C_k$ er sammenhengende, innebærer kravet $\text{support}(w, C_k) \ge 2$ at $w$ har minst to distinkte naboer $u_1, u_2 \in C_k$ (en lokal $2$-core-forankring \cite{seidman1983network}). Dersom $\{u_1, u_2\} \in E$, danner $(w, u_1, u_2)$ en $3$-klikk ($\triangle$) med $2$ noder i $C_k$. En perifer node $z$ som kun henger på én enkelt bro-node $v \in C_k$ ($\text{support}(z, C_k) = 1$) kan aldri passere skjoldet.
+\end{proposition}
+
+Dette forklarer hvorfor $m_{\min} = 2$ eliminerer kryss-domene-lekkasje så effektivt:
+\begin{itemize}
+  \item For \textbf{«pålegg»} har selve ordet \emph{pålegg} 11 naboer inne i \texttt{instrukser-retningslinjer} ($\text{support} = 11 \ge 2$) og slippes inn som bro-ord. Derimot har matord som \emph{pølser}, \emph{kjøttdeig} og \emph{brød} $\text{support} = 0$ (eller $1$ hvis \emph{pålegg} allerede ligger i klyngen) mot de juridiske ordene, og blokkeres $100\,\%$.
+  \item For \textbf{«overlast»} har tekniske havari-ord (\texttt{kortslutning-kortslutninger}) $5$ interne naboer til \emph{overlast} ($\text{support}(\text{overlast}, C_{\text{kortslutning}}) = 5 \ge 2$), slik at \emph{overlast} blir bro-ord i havari-klyngen, mens samtlige 31 volds- og krenkelsesord (\emph{vold, overgrep, mishandling, hån}) har $\text{support} \le 1$ mot de tekniske ordene og blokkeres.
+\end{itemize}
+
+\subsection{Modul C: Klynge-deduplisering via Jaccard-sanering}
+Dersom to små grunnklynger etter utvidelse konvergerer mot nesten identisk ordmengde, måles parvis Jaccard-likhet:
+\begin{equation}
+  J(\widetilde{C}_i, \widetilde{C}_j) = \frac{|\widetilde{C}_i \cap \widetilde{C}_j|}{|\widetilde{C}_i \cup \widetilde{C}_j|}.
+\end{equation}
+Par med $J(\widetilde{C}_i, \widetilde{C}_j) \ge \tau_J$ (standard $\tau_J = 0{,}85$) slås sammen til én klynge $\widetilde{C}_i \cup \widetilde{C}_j$ med sammensatt anker-etikett.
+
+\subsection{Modul D: Semantisk spredningsentropi $H_{\text{norm}}$ og innovasjonsgrad $I$}
+Etter utvidelse kan det i enkelte grafer gjenstå en \textbf{uoppløst hub-klynge} (en «parasittklynge», som f.eks.\ \texttt{klassisk-skøyting} eller en ren bro-klynge mellom store naboer): en klynge som nesten ikke har egne unike ord, men hvis medlemmer nå er fordelt utover de spesialiserte naboklyngene (ski, musikk, massasje, teori).
+
+For å detektere og sanere slike parasittklynger definerer vi to komplementære mål på klyngekolleksjonen $\mathcal{C} = \{C_1, \dots, C_K\}$:
+
+\begin{definition}[Spredningsentropi $H_{\text{norm}}(C_i)$ og innovasjonsgrad $I(C_i)$]
+For en gitt klynge $C_i \in \mathcal{C}$ med $K \ge 3$, la sannsynlighetsfordelingen $P(C_j \mid C_i)$ for $j \ne i$ være gitt ved andelen av klyngens parvise overlapp som faller i klynge $C_j$:
+\begin{equation}
+  P(C_j \mid C_i) = \frac{|C_i \cap C_j|}{\sum_{k \ne i} |C_i \cap C_k|}.
+\end{equation}
+Den normaliserte Shannon-entropien over nabofordelingen er:
+\begin{equation}
+  H(C_i) = -\sum_{j \ne i} P(C_j \mid C_i) \log_2 P(C_j \mid C_i), \qquad
+  H_{\text{norm}}(C_i) = \frac{H(C_i)}{\log_2(K - 1)} \in [0, 1].
+\end{equation}
+Klyngens \textbf{innovasjonsgrad} (egenverdi) $I(C_i)$ er andelen ord i $C_i$ som ikke forekommer i noen annen klynge:
+\begin{equation}
+  I(C_i) = \frac{\big|C_i \setminus \bigcup_{j \ne i} C_j\big|}{|C_i|} \in [0, 1].
+\end{equation}
+\end{definition}
+
+Kombinasjonen $(H_{\text{norm}}(C_i),\, I(C_i))$ gir en presis klassifikasjon av klyngens topologiske rolle:
+\begin{itemize}
+  \item \textbf{Lav $H_{\text{norm}} \to 0$, høy $I$:} Klyngen overlapper kun med én spesifikk naboklynge (eller bare via ett bro-ord) og har et stort eget ordforråd (f.eks.\ \texttt{pålegg-instrukser} med $H_{\text{norm}} = 0{,}48,\, I = 0{,}94$).
+  \item \textbf{Høy $H_{\text{norm}}$, høy $I \gg 0{,}10$:} Et stort, legitimt hoveddomene som deler enkelt-broer med mange naboklynger, men som samtidig bærer en stor mengde unike kjerneord (f.eks.\ \texttt{is-snø} med $H_{\text{norm}} = 0{,}81,\, I = 0{,}72$).
+  \item \textbf{Høy $H_{\text{norm}} > \tau_H$ ($0{,}75$) OG lav $I < \tau_I$ ($0{,}10$):} En \textbf{uoppløst parasitt-/hub-artifakt}. Nesten alle ordene ($\ge 90\,\%$) er allerede bedre forankret i spesialklyngene, og medlemmene lekker jevnt i alle himmelretninger.
+\end{itemize}
+
+\paragraph{Iterativ sanering med bevaring av $100\,\%$ dekning:}
+Dersom flere klynger tilfredsstiller $H_{\text{norm}}(C_i) > \tau_H$ og $I(C_i) < \tau_I$, fjernes den mest parasittiske klyngen $i^* = \arg\max_i (H_{\text{norm}}(C_i) - I(C_i))$ \textbf{én om gangen}, hvoretter $H_{\text{norm}}$ og $I$ rekalkuleres for de gjenværende klyngene. Eventuelle unike enkeltord $u \in C_{i^*} \setminus \bigcup_{j \ne i^*} C_j$ omplasseres til den gjenværende klyngen $C_j$ som maksimerer kantvekten $\sum_{v \in C_j} w(u, v)$. Til slutt løses det grådige \textbf{Set-Cover-problemet} \cite{chvatal1979greedy} for å identifisere den minste delmengden av klynger som dekker $100\,\%$ av $V$.
+
+% =============================================================================
+\section{Operasjonell semantikk og empiriske resultater}
+% =============================================================================
+
+\subsection{Kjernebetydninger vs.\ randsoneklynger}
+Når en ordgalakse genereres fra et søkeord $w_0$, gir det rensede klyngesettet $\mathcal{C} = \{C_1, \dots, C_K\}$ en direkte operasjonell metode for automatisk leksikalsk semantikk:
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Primære betydninger (Sense clusters, $w_0 \in C_i$):} Hver klynge $C_i$ der søkeordet $w_0$ selv er medlem, representerer en distinkt betydning eller bruksfasett av $w_0$. Antallet slike klynger,
+    \[
+      m(w_0) = \big|\{C_i \in \mathcal{C} : w_0 \in C_i\}\big|,
+    \]
+    er et direkte mål på ordets grad av polysemi/homonymi i korpuset.
+  \item \textbf{Randsoneklynger (Periphery clusters, $w_0 \notin C_j$):} Klynger i grafen der $w_0$ \emph{ikke} er medlem etter Modul~B, befinner seg i grafens randsone (2.\ hopp). De er trukket inn i galaksen fordi et av nabo-ordene $u \in \mathcal{N}_G(w_0)$ selv er polysemt og har sin egen sekundære kontekst i $C_j$.
+\end{enumerate}
+
+\subsection{Empirisk sammenligning på norsk korpus (NB DH-lab)}
+Tabell~\ref{tab:comparison} oppsummerer resultatene på fire testord fra Nasjonalbibliotekets n-gram-galakseAPI (\texttt{limit=16}, \texttt{corpus=all}).
+
+\begin{table}[htbp]
+\centering
+\caption{Sammenligning av klyngeegenskaper på tvers av metoder for fire ordgalakser.}
+\label{tab:comparison}
+\small
+\begin{tabular}{@{}llrrrrl@{}}
+\toprule
+\textbf{Søkeord} & \textbf{Metode} & \textbf{Dekning} & \textbf{Overlapp} & \textbf{Snitt/node} & \textbf{Skjold / Sanert} & \textbf{Kjernebetydninger ($w_0 \in C_i$)} \\
+\midrule
+\textbf{pålegg} & Klikk ($k=3$) & $75{,}0\,\%$ & $0{,}9\,\%$ & $0{,}76$ & -- & 2 klikker (mat, instrukser) \\
+($|V|=112$) & Louvain + ufiltrert $L(G)$ & $100{,}0\,\%$ & $23{,}2\,\%$ & $1{,}23$ & 0 stoppet & Lekkasje: jus-ord inn i mat \\
+ & \textbf{Leiden + skjold (A--D)} & $\mathbf{100{,}0\,\%}$ & $\mathbf{8{,}9\,\%}$ & $\mathbf{1{,}13}$ & \textbf{105 stoppet} & Mat (3 fasetter) + Instrukser (1) \\
+\midrule
+\textbf{overlast} & Klikk ($k=3$) & $67{,}7\,\%$ & $3{,}2\,\%$ & $0{,}71$ & -- & Mister tekniske/maritime ord \\
+($|V|=124$) & Louvain + ufiltrert $L(G)$ & $100{,}0\,\%$ & $37{,}9\,\%$ & $1{,}91$ & 0 stoppet & 3 maritime klynger kollapser til vold \\
+ & \textbf{Leiden + skjold (A--D)} & $\mathbf{100{,}0\,\%}$ & $\mathbf{9{,}7\,\%}$ & $\mathbf{1{,}14}$ & \textbf{203 stoppet} & Vold, Overgrep, Hån, Vondt, Kortslutning \\
+\midrule
+\textbf{is} & Klikk ($k=3$) & $78{,}4\,\%$ & $1{,}7\,\%$ & $0{,}80$ & -- & 2 hovedklikker (snø, brus) \\
+($|V|=116$) & Louvain + ufiltrert $L(G)$ & $100{,}0\,\%$ & $31{,}9\,\%$ & $1{,}43$ & 0 stoppet & Lekkasje: \emph{brus, pølser} inn i \emph{is-snø} \\
+ & \textbf{Leiden + skjold (A--D)} & $\mathbf{100{,}0\,\%}$ & $\mathbf{12{,}9\,\%}$ & $\mathbf{1{,}18}$ & \textbf{53 stoppet} & Vinter/snø/holke + Brus/pølser (kiosk) \\
+\midrule
+\textbf{demokrati} & Leiden + ufiltrert $L(G)$ & $100{,}0\,\%$ & $46{,}0\,\%$ & $1{,}88$ & 2 hub-klynger & 2 parasittklynger med $I = 0{,}00\text{--}0{,}10$ \\
+($|V|=139$) & \textbf{Leiden + skjold (A--D)} & $\mathbf{100{,}0\,\%}$ & $\mathbf{20{,}9\,\%}$ & $\mathbf{1{,}37}$ & \textbf{111 stoppet} & Alle klynger har $I \ge 0{,}48$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Case 1: «pålegg» (homonymi mellom mat og juss/forvaltning).}
+Med Leiden + Modul~A--D unngås Louvains sekkeklynge (\texttt{pålegg-henstillinger}), og ordet \emph{pålegg} trer frem som bro-ord i sine to distinkte domener:
+\begin{itemize}
+  \item \textbf{Mat-klynger der \emph{pålegg} er medlem:} \texttt{pålegg-pølser} (anker: \texttt{pålegg-posteier}, 30 ord, $H_{\text{norm}}=0{,}70,\, I=0{,}70$), \texttt{pålegg-pølser-Pølser} (19 ord, $H_{\text{norm}}=0{,}45,\, I=0{,}89$) og \texttt{pålegg-pølsevarer} (14 ord, $H_{\text{norm}}=0{,}38,\, I=0{,}71$).
+  \item \textbf{Direktiv-klynge der \emph{pålegg} er medlem:} \texttt{pålegg-instrukser} (16 ord, $H_{\text{norm}}=0{,}48,\, I=0{,}94$), der \emph{pålegg} er knyttet til \emph{instrukser, retningslinjer, bestemmelser, forskrifter, regler, direktiver} uten at et eneste matord lekker inn.
+  \item \textbf{Randsoneklynger (der \emph{pålegg} ikke er medlem):} \texttt{henstillinger-advarsler} (9 ord, $I=1{,}00$), \texttt{restriksjoner-påbud} (8 ord, $I=1{,}00$), \texttt{tvangsmulkt-overtredelsesgebyr} (4 ord, $I=1{,}00$) og \texttt{smør-brød} (9 ord, $I=0{,}78$).
+\end{itemize}
+
+\paragraph{Case 2: «overlast» (fysisk overgrep vs.\ teknisk/elektrisk overbelastning).}
+Uten lekkasjestopper fører den store kantstjernen rundt \emph{overlast} til at 31 voldsord kopieres inn i tre små maritime og tekniske klynger (\texttt{lasten-fartøiet}, \texttt{sikkerhetsutstyr-alarmer}, \texttt{last-passasjerer}). Med forankringstesten $|\mathcal{N}_G(w) \cap C_k| \ge 2$ blokkeres 203 slike kryss-lekkasjer. Ordet \emph{overlast} blir stående som medlem i fem reelle betydningsfasetter (\texttt{overlast-vold}, \texttt{overlast-vold-overgrep}, \texttt{overlast-hån}, \texttt{overlast-vondt} og den tekniske havari-klyngen \texttt{overlast-kortslutning}), mens samtlige 2.-hopps randsoneklynger (\texttt{dekk-bremser}, \texttt{lasten-fartøiet}, \texttt{kjøring-lunning}) forblir $100\,\%$ rene ($H_{\text{norm}}=0{,}00,\, I=1{,}00$).
+
+% =============================================================================
+\section{Oppsummering av algoritmisk pipeline}
+% =============================================================================
+
+Den samlede metoden kan oppsummeres i fem trinn:
+\begin{enumerate}[label=\textbf{Trinn \arabic*:}]
+  \item \textbf{Graf- og klikkforankring:} Bygg koordinasjonsgrafen $G = (V, E, w)$, beregn sentraliteter ($C_D, C_B, C_C$) og konstruer det hierarkiske inklusjonstreet $\mathcal{T}_k$ av $k$-klikk-samfunn ($k = 3, 4, \dots$).
+  \item \textbf{Grunnpartisjonering (Leiden):} Finn vel-sammenhengende, disjunkte grunnklynger $\{C_1, \dots, C_K\}$ på $G$ med Leiden-algoritmen ($\gamma_{\text{CPM}} = 0{,}05$), og mål klikkenes clusterspredning over grunnklyngene.
+  \item \textbf{Grad-penalisert linjegraf (Modul A):} Konstruer $L_w(G)$ med Adamic--Adar-vekt $W_L(e_1, e_2) = 1/\ln(\deg_G(v))$ for $\deg_G(v) > 2$, og finn kantklynger $\{D_1, \dots, D_m\}$ på $L_w(G)$.
+  \item \textbf{Skjermet klyngeutvidelse (Modul B):} Utvid hver grunnklynge $C_k$ med eksterne noder $w$ fra $L_w(G)$ som oppfyller forankringstesten $|\mathcal{N}_G(w) \cap C_k| \ge 2$.
+  \item \textbf{Sanering av kollaps og parasitt-hubber (Modul C \& D):} Slå sammen duplikatklynger med $J(\widetilde{C}_i, \widetilde{C}_j) \ge 0{,}85$, fjern iterativt uoppløste hub-klynger med $H_{\text{norm}}(C_i) > 0{,}75$ og $I(C_i) < 0{,}10$ (med bevaring av $100\,\%$ dekning), og beregn grådig Set-Cover.
+\end{enumerate}
+
+% =============================================================================
+\begin{thebibliography}{99}
+
+\bibitem{adamic2003friends}
+L.~A. Adamic og E.~Adar (2003).
+\newblock Friends and neighbors on the Web.
+\newblock \emph{Social Networks}, 25(3), 211--230.
+
+\bibitem{ahn2010link}
+Y.-Y. Ahn, J.~P. Bagrow og S.~Lehmann (2010).
+\newblock Link communities reveal multiscale complexity in networks.
+\newblock \emph{Nature}, 466(7307), 761--764.
+
+\bibitem{blondel2008fast}
+V.~D. Blondel, J.-L. Guillaume, R.~Lambiotte og E.~Lefebvre (2008).
+\newblock Fast unfolding of communities in large networks.
+\newblock \emph{Journal of Statistical Mechanics: Theory and Experiment}, 2008(10), P10008.
+
+\bibitem{brandes2001faster}
+U.~Brandes (2001).
+\newblock A faster algorithm for betweenness centrality.
+\newblock \emph{Journal of Mathematical Sociology}, 25(2), 163--177.
+
+\bibitem{bron1973algorithm}
+C.~Bron og J.~Kerbosch (1973).
+\newblock Algorithm 457: finding all cliques of an undirected graph.
+\newblock \emph{Communications of the ACM}, 16(9), 575--577.
+
+\bibitem{chvatal1979greedy}
+V.~Chv{\'a}tal (1979).
+\newblock A greedy heuristic for the set-covering problem.
+\newblock \emph{Mathematics of Operations Research}, 4(3), 233--235.
+
+\bibitem{dorow2003discovering}
+B.~Dorow og D.~Widdows (2003).
+\newblock Discovering corpus-specific word senses.
+\newblock I \emph{Proceedings of the 10th Conference of the European Chapter of the ACL (EACL)}, s.~79--82.
+
+\bibitem{evans2009line}
+T.~S. Evans og R.~Lambiotte (2009).
+\newblock Line graphs, link partitions, and overlapping communities.
+\newblock \emph{Physical Review E}, 80(1), 016105.
+
+\bibitem{evans2010clique}
+T.~S. Evans (2010).
+\newblock Clique graphs and overlapping communities.
+\newblock \emph{Journal of Statistical Mechanics: Theory and Experiment}, 2010(12), P12037.
+
+\bibitem{everett1998analyzing}
+M.~G. Everett og S.~P. Borgatti (1998).
+\newblock Analyzing clique overlap.
+\newblock \emph{Connections}, 21(1), 49--61.
+
+\bibitem{fortunato2007resolution}
+S.~Fortunato og M.~Barth{\'e}lemy (2007).
+\newblock Resolution limit in community detection.
+\newblock \emph{Proceedings of the National Academy of Sciences (PNAS)}, 104(1), 36--41.
+
+\bibitem{gregory2010finding}
+S.~Gregory (2010).
+\newblock Finding overlapping communities in networks by label propagation.
+\newblock \emph{New Journal of Physics}, 12(10), 103018.
+
+\bibitem{harary1960some}
+F.~Harary og R.~Z. Norman (1960).
+\newblock Some properties of line digraphs.
+\newblock \emph{Rendiconti del Circolo Matematico di Palermo}, 9(2), 161--168.
+
+\bibitem{hearst1992automatic}
+M.~A. Hearst (1992).
+\newblock Automatic acquisition of hyponyms from large text corpora.
+\newblock I \emph{Proceedings of the 14th International Conference on Computational Linguistics (COLING)}, s.~539--545.
+
+\bibitem{lancichinetti2009community}
+A.~Lancichinetti og S.~Fortunato (2009).
+\newblock Community detection algorithms: a comparative analysis.
+\newblock \emph{Physical Review E}, 80(5), 056117.
+
+\bibitem{newman2004finding}
+M.~E.~J. Newman og M.~Girvan (2004).
+\newblock Finding and evaluating community structure in networks.
+\newblock \emph{Physical Review E}, 69(2), 026113.
+
+\bibitem{palla2005uncovering}
+G.~Palla, I.~Der{\'e}nyi, I.~Farkas og T.~Vicsek (2005).
+\newblock Uncovering the overlapping community structure of complex networks in nature and society.
+\newblock \emph{Nature}, 435(7043), 814--818.
+
+\bibitem{seidman1983network}
+S.~B. Seidman (1983).
+\newblock Network structure and minimum degree.
+\newblock \emph{Social Networks}, 5(3), 269--287.
+
+\bibitem{traag2019louvain}
+V.~A. Traag, L.~Waltman og N.~J. van~Eck (2019).
+\newblock From Louvain to Leiden: guaranteeing well-connected communities.
+\newblock \emph{Scientific Reports}, 9(1), 5233.
+
+\bibitem{wasserman1994social}
+S.~Wasserman og K.~Faust (1994).
+\newblock \emph{Social Network Analysis: Methods and Applications}.
+\newblock Cambridge University Press.
+
+\bibitem{widdows2002graph}
+D.~Widdows og B.~Dorow (2002).
+\newblock A graph model for unsupervised lexical acquisition.
+\newblock I \emph{Proceedings of the 19th International Conference on Computational Linguistics (COLING)}, s.~1--7.
+
+\bibitem{zhou2009predicting}
+T.~Zhou, L.~L{\"u} og Y.-C. Zhang (2009).
+\newblock Predicting missing links via local information.
+\newblock \emph{The European Physical Journal B}, 71(4), 623--630.
+
+\end{thebibliography}
+
+\end{document}
