@@ -268,13 +268,22 @@ function recomputeAndRenderOverlap() {
       'best_overlap',
       0.25
     );
-  } else {
+  } else if (mode === 'clique_hybrid') {
     currentGraph.overlap = computeOverlapAnalysis(
       currentGraph.nodes,
       currentGraph.adjUndirected,
       currentGraph.clusters,
       currentGraph.cliques,
       'clique_hybrid',
+      0.25
+    );
+  } else {
+    currentGraph.overlap = computeOverlapAnalysis(
+      currentGraph.nodes,
+      currentGraph.adjUndirected,
+      currentGraph.clusters,
+      currentGraph.cliques,
+      'shielded',
       0.25
     );
   }
@@ -316,6 +325,15 @@ function renderOverlapClusters(graph: GalaxyGraph) {
     </div>
   `;
 
+  const shieldSummaryTag =
+    ov.totalShieldBlocked > 0
+      ? `<span class="meta-tag meta-tag-accent" title="Antall falske kryss-domene-lekkasjer fra L(G) som ble avvist av forankringstesten (|N(w) ∩ C| < 2)">Skjold stoppet ${ov.totalShieldBlocked} lekkasjer</span>`
+      : '';
+  const dedupSummaryTag =
+    ov.deduplicatedCount > 0
+      ? `<span class="meta-tag meta-tag-accent" title="Kollapsede klynger med Jaccard-likhet ≥ 0.85 slått sammen">Jaccard-deduplisert: −${ov.deduplicatedCount} kollaps</span>`
+      : '';
+
   const cmpLine = document.createElement('div');
   cmpLine.className = 'overlap-submeta';
   cmpLine.style.marginBlockEnd = '0.8rem';
@@ -323,6 +341,8 @@ function renderOverlapClusters(graph: GalaxyGraph) {
     <span class="meta-tag" title="Vanlig Louvain har 100 % dekning men 0 % overlapp">Louvain: 100 % dekning (1.00/node)</span>
     <span class="meta-tag" title="Klikk-perkolasjon (k=3) mister noder utenfor trekanter">Klikk k=3: ${ov.cpmCoveragePercentage.toFixed(1)} % dekning (${ov.cpmCoveredNodes}/${graph.nodes.size})</span>
     <span class="meta-tag meta-tag-accent" title="Minste kolleksjon av overlappsclustre som dekker 100 % av nodene">Set-cover: ${ov.setCoverCount} av ${ov.clusters.length} clustre</span>
+    ${shieldSummaryTag}
+    ${dedupSummaryTag}
   `;
 
   overlapStatsContainer.append(statsGrid, cmpLine);
@@ -399,22 +419,26 @@ function renderOverlapClusters(graph: GalaxyGraph) {
 
     const submeta = document.createElement('div');
     submeta.className = 'overlap-submeta';
-    const lgAddedCount = cluster.addedWords.length - cluster.cliqueAddedWords.length;
     const addedTag =
-      lgAddedCount > 0
-        ? `<span class="meta-tag meta-tag-accent" title="Nye grense-/bro-ord tilknyttet fra linjegrafen">+${lgAddedCount} via L(G)</span>`
-        : `<span class="meta-tag">0 fra L(G)</span>`;
-    const cliqueTag =
-      cluster.cliqueAddedWords.length > 0
-        ? `<span class="meta-tag meta-tag-accent" title="Bro-ord forankret via trekant/klikkstruktur (${cluster.cliqueAddedWords.join(', ')})">+${cluster.cliqueAddedWords.length} via klikk (${cluster.cliqueAddedWords.slice(0, 2).join(', ')})</span>`
+      cluster.addedWords.length > 0
+        ? `<span class="meta-tag meta-tag-accent" title="Reelle bro-ord tilknyttet fra L(G) (${cluster.addedWords.join(', ')})">+${cluster.addedWords.length} bro-ord (${cluster.addedWords.slice(0, 3).join(', ')}${cluster.addedWords.length > 3 ? '…' : ''})</span>`
+        : `<span class="meta-tag">0 ekstra fra L(G)</span>`;
+    const shieldTag =
+      cluster.shieldBlockedWords.length > 0
+        ? `<span class="meta-tag" title="Avviste fremmedord fra L(G) med intern støtte < 2 i dette ankeret: ${cluster.shieldBlockedWords.join(', ')}">Skjold avviste ${cluster.shieldBlockedWords.length} (${cluster.shieldBlockedWords.slice(0, 3).join(', ')}${cluster.shieldBlockedWords.length > 3 ? '…' : ''})</span>`
+        : '';
+    const mergedTag =
+      cluster.mergedCores > 1
+        ? `<span class="meta-tag meta-tag-accent" title="Sammenslått fra ${cluster.mergedCores} kollapsede klynger (Jaccard ≥ 0.85)">${cluster.mergedCores} kjerner samlet</span>`
         : '';
     const coverTag = cluster.inSetCover
       ? `<span class="meta-tag" title="Inngår i grådig set-cover og dekker ${cluster.setCoverNewlyAdded} nye noder">Set-cover (+${cluster.setCoverNewlyAdded})</span>`
       : '';
     submeta.innerHTML = `
-      <span class="meta-tag" title="Opprinnelig Louvain-cluster før tilknytning">Kjerne: ${cluster.origLabel}</span>
+      <span class="meta-tag" title="Opprinnelig Louvain-anker før L(G)-utvidelse">Anker: ${cluster.origLabel}</span>
       ${addedTag}
-      ${cliqueTag}
+      ${shieldTag}
+      ${mergedTag}
       ${coverTag}
     `;
 

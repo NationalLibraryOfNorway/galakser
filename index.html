@@ -222,22 +222,26 @@
             <div id="clusters-container"></div>
           </section>
 
-          <!-- Tab 2: Overlappsclustre (Louvain + Linjegraf + Attachment) -->
+          <!-- Tab 2: Overlappsclustre (Louvain + Linjegraf + Lekkasjestopper) -->
           <section id="tab-overlap" class="tab-pane" role="tabpanel" hidden>
             <div class="overlap-controls">
               <div class="overlap-intro">
                 <span>
-                  Linjegraf <em>L(G)</em> + Louvain + tilknytning gir 100 % dekning med naturlig
-                  overlapp for polyseme bro-ord.
+                  Grad-penalisert linjegraf <em>L(G)</em> + lekkasjestopper (<code
+                    >|N(w) ∩ C| ≥ 2</code
+                  >) bevarer reell polysemi og blokkerer falsk kryss-domene-lekkasje.
                 </span>
               </div>
               <div class="overlap-strategy-bar">
                 <label for="overlap-strategy-select">Tilknytningsstrategi:</label>
                 <select id="overlap-strategy-select" class="select-control select-sm">
-                  <option value="clique_hybrid" selected>
-                    Linjegraf + klikk-forankring (anbefalt)
+                  <option value="shielded" selected>
+                    L(G) + lekkasjestopper (støtte ≥ 2, anbefalt)
                   </option>
-                  <option value="best_overlap">Kun linjegraf (1-til-1 union)</option>
+                  <option value="clique_hybrid">
+                    Linjegraf + klikk-forankring (uten skjold)
+                  </option>
+                  <option value="best_overlap">Kun linjegraf (1-til-1 uten skjold)</option>
                   <option value="threshold_020">Jaccard-terskel ≥ 0.20</option>
                   <option value="threshold_012">Jaccard-terskel ≥ 0.12 (bredere)</option>
                 </select>

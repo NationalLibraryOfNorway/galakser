@@ -50,6 +50,12 @@ export interface CliqueGroup {
   clusterSpread: CliqueClusterShare[];
 }
 
+export type OverlapStrategy =
+  | 'shielded'
+  | 'clique_hybrid'
+  | 'best_overlap'
+  | 'threshold';
+
 export interface OverlapClusterGroup {
   id: number;
   label: string;
@@ -60,6 +66,8 @@ export interface OverlapClusterGroup {
   words: string[];
   addedWords: string[];
   cliqueAddedWords: string[];
+  shieldBlockedWords: string[];
+  mergedCores: number;
   inSetCover: boolean;
   setCoverNewlyAdded: number;
 }
@@ -79,6 +87,8 @@ export interface OverlapAnalysis {
   cpmCoveredNodes: number;
   cpmCoveragePercentage: number;
   cpmMeanClustersPerNode: number;
+  totalShieldBlocked: number;
+  deduplicatedCount: number;
 }
 
 export interface GalaxyGraph {
@@ -234,13 +244,13 @@ export function buildGalaxyGraph(raw: RawApiResponse): GalaxyGraph {
   // Compute k-clique communities & inclusion tree like gnl.kcliques + gnl.subsetgraph
   const cliques = computeKCliqueCommunities(nodes, adjUndirected);
 
-  // Compute Overlapping Clusters via Line Graph (Dual Graph) + Louvain + Clique-Informed Attachment
+  // Compute Overlapping Clusters via Line Graph L(G) + Lekkasjestopper (støtte >= 2) + Jaccard-deduplisering
   const overlap = computeOverlapAnalysis(
     nodes,
     adjUndirected,
     clusters,
     cliques,
-    'clique_hybrid',
+    'shielded',
     0.25
   );
 
@@ -907,20 +917,206 @@ export function findAllSimplePaths(
 }
 
 /**
- * Dual Graph (Line Graph) + Louvain + Attachment algorithm from Yoonsen/dual_graphs:
- * 1. Build undirected line graph Gd where each undirected edge e = {u, v} is a dual node,
- *    and two dual nodes are connected if they share a vertex in G.
- * 2. Run Louvain clustering on Gd and project each dual cluster back to its set of words.
- * 3. Attach dual clusters to original Louvain clusters ('best_overlap' or 'threshold').
- * 4. Order words in each overlapping cluster by degree centrality in G (format_clusters_by_centrality),
- *    name each cluster after its top-2 most central words, and compute Greedy Set Cover.
+ * Modul A: Grad-penalisert linjegraf L(G) (build_weighted_line_graph).
+ * Hver urettet kant e = (u, v) i G blir en node i L(G).
+ * For hver felles node v mellom e1 = (u, v) og e2 = (v, w):
+ * - Ved 'adamic_adar': straff = 1.0 / ln(deg(v)) for deg(v) > 2, ellers 1.0.
+ * - Ved 'unweighted': vekt = 1.0.
+ */
+export function buildWeightedLineGraph(
+  sortedNodeIds: string[],
+  nodeToDualEdges: Map<string, number[]>,
+  edgeCount: number,
+  method: 'adamic_adar' | 'unweighted' = 'adamic_adar',
+  threshold: number = 0.0
+): { dualAdj: Map<number, number>[]; dualEdgeCount: number } {
+  const dualAdj: Map<number, number>[] = Array.from({ length: edgeCount }, () => new Map());
+  let dualEdgeCount = 0;
+
+  for (const v of sortedNodeIds) {
+    const incidentEdges = nodeToDualEdges.get(v);
+    if (!incidentEdges) continue;
+    const degV = incidentEdges.length;
+    if (degV < 2) continue;
+
+    const penalty =
+      method === 'adamic_adar' ? (degV > 2 ? 1.0 / Math.log(degV) : 1.0) : 1.0;
+    const weight = 1.0 * penalty;
+    if (weight <= threshold) continue;
+
+    for (let i = 0; i < degV; i++) {
+      const e1 = incidentEdges[i];
+      for (let j = i + 1; j < degV; j++) {
+        const e2 = incidentEdges[j];
+        if (!dualAdj[e1].has(e2)) {
+          dualAdj[e1].set(e2, weight);
+          dualAdj[e2].set(e1, weight);
+          dualEdgeCount++;
+        }
+      }
+    }
+  }
+
+  return { dualAdj, dualEdgeCount };
+}
+
+/**
+ * Modul B: Klyngeutvidelse via L(G) og forankringstest / lekkasjestopper (expand_cluster_with_set_cover).
+ * For en grunnklynge C vurderes kandidat-noder w ∉ C fra L(G).
+ * Forankringstest (Anti-lekkasje domenesperre):
+ *   support(w, C) = |N_G(w) ∩ C|
+ * Dersom support < minInternalSupport (standard: 2), avvises w som kryss-domene-lekkasje.
+ * Dersom support >= minInternalSupport, innlemmes w som reelt bro-ord i rand-dekningen.
+ */
+export function expandClusterWithSetCover(
+  origSet: Set<string>,
+  bestDual: Set<string> | null,
+  adjUndirected: Map<string, Map<string, number>>,
+  minInternalSupport: number = 2
+): {
+  expandedSet: Set<string>;
+  shieldBlockedWords: string[];
+} {
+  const expandedSet = new Set<string>(origSet);
+  const candidateExternal = new Set<string>();
+  const bestDualExternal = new Set<string>();
+
+  if (bestDual) {
+    for (const w of bestDual) {
+      if (!origSet.has(w)) {
+        candidateExternal.add(w);
+        bestDualExternal.add(w);
+      }
+    }
+  }
+
+  // Also inspect all edges in L(G) directly incident to nodes v in C
+  for (const v of origSet) {
+    const nbrs = adjUndirected.get(v);
+    if (!nbrs) continue;
+    for (const w of nbrs.keys()) {
+      if (!origSet.has(w)) {
+        candidateExternal.add(w);
+      }
+    }
+  }
+
+  const shieldBlockedWords: string[] = [];
+
+  for (const w of candidateExternal) {
+    const wNbrs = adjUndirected.get(w);
+    if (!wNbrs) continue;
+    let support = 0;
+    for (const u of origSet) {
+      if (wNbrs.has(u)) {
+        support++;
+      }
+    }
+
+    if (support >= minInternalSupport) {
+      expandedSet.add(w);
+    } else if (bestDualExternal.has(w)) {
+      // w would have leaked in via bestDual in unweighted L(G), but was blocked by the support shield
+      shieldBlockedWords.push(w);
+    }
+  }
+
+  return { expandedSet, shieldBlockedWords };
+}
+
+/**
+ * Modul C: Klynge-deduplisering med Jaccard-sanering (deduplicate_expanded_clusters).
+ * Hvis to utvidede klynger C_i og C_j har Jaccard-likhet |C_i ∩ C_j| / |C_i ∪ C_j| >= jaccardThreshold (0.85),
+ * slås de sammen til én enhet med sammenslått kjerne-etikett.
+ */
+function deduplicateExpandedClusters<
+  T extends {
+    orig: ClusterGroup;
+    origLabels: string[];
+    overlapCount: number;
+    jaccardScore: number;
+    words: string[];
+    addedWords: string[];
+    cliqueAddedWords: string[];
+    shieldBlockedWords: string[];
+  },
+>(clusters: T[], nodes: Map<string, GraphNode>, jaccardThreshold: number = 0.85): {
+  deduped: T[];
+  mergedCount: number;
+} {
+  const consumed = new Uint8Array(clusters.length);
+  const deduped: T[] = [];
+  let mergedCount = 0;
+
+  const sortByCentrality = (wordList: Iterable<string>): string[] =>
+    Array.from(new Set(wordList)).sort((a, b) => {
+      const degDiff =
+        (nodes.get(b)?.undirectedDegree ?? 0) - (nodes.get(a)?.undirectedDegree ?? 0);
+      if (degDiff !== 0) return degDiff;
+      const totDiff = (nodes.get(b)?.totalDegree ?? 0) - (nodes.get(a)?.totalDegree ?? 0);
+      return totDiff !== 0 ? totDiff : a.localeCompare(b, 'nb');
+    });
+
+  for (let i = 0; i < clusters.length; i++) {
+    if (consumed[i]) continue;
+    const base = clusters[i];
+    const wordSet = new Set(base.words);
+    const addedSet = new Set(base.addedWords);
+    const cliqueAddedSet = new Set(base.cliqueAddedWords);
+    const blockedSet = new Set(base.shieldBlockedWords);
+    const origLabels = [...base.origLabels];
+
+    for (let j = i + 1; j < clusters.length; j++) {
+      if (consumed[j]) continue;
+      const other = clusters[j];
+      const otherSet = new Set(other.words);
+      let inter = 0;
+      for (const w of wordSet) {
+        if (otherSet.has(w)) inter++;
+      }
+      const union = wordSet.size + otherSet.size - inter;
+      const jacc = union > 0 ? inter / union : 0;
+
+      if (jacc >= jaccardThreshold) {
+        consumed[j] = 1;
+        mergedCount++;
+        for (const w of other.words) wordSet.add(w);
+        for (const w of other.addedWords) addedSet.add(w);
+        for (const w of other.cliqueAddedWords) cliqueAddedSet.add(w);
+        for (const w of other.shieldBlockedWords) blockedSet.add(w);
+        for (const lbl of other.origLabels) {
+          if (!origLabels.includes(lbl)) origLabels.push(lbl);
+        }
+      }
+    }
+
+    const sortedWords = sortByCentrality(wordSet);
+    deduped.push({
+      ...base,
+      origLabels,
+      words: sortedWords,
+      addedWords: sortedWords.filter((w) => addedSet.has(w)),
+      cliqueAddedWords: sortedWords.filter((w) => cliqueAddedSet.has(w)),
+      shieldBlockedWords: sortByCentrality(blockedSet),
+    });
+  }
+
+  return { deduped, mergedCount };
+}
+
+/**
+ * Dual Graph (Line Graph) + Louvain + Lekkasjestopper + Set Cover:
+ * 1. Modul A: Bygg grad-penalisert linjegraf L(G) (Adamic-Adar 1/ln(deg(v))) der kanter i G er noder.
+ * 2. Kjør Louvain på L(G) og projiser kantklyngene tilbake til ordmengder.
+ * 3. Modul B: Utvid grunnklyngene med lekkasjestopper (støtte |N_G(w) ∩ C| >= 2 ved 'shielded').
+ * 4. Modul C: Dedupliser kollapsede klynger med Jaccard-likhet >= 0.85, ranger etter sentralitet og beregn Set Cover.
  */
 export function computeOverlapAnalysis(
   nodes: Map<string, GraphNode>,
   adjUndirected: Map<string, Map<string, number>>,
   origClusters: ClusterGroup[],
   cliques: CliqueGroup[],
-  strategy: 'clique_hybrid' | 'best_overlap' | 'threshold' = 'clique_hybrid',
+  strategy: OverlapStrategy = 'shielded',
   jaccardThreshold: number = 0.25
 ): OverlapAnalysis {
   // 1. Extract unique undirected edges in sorted word order (matching build_cooccurrence_from_coordinations)
@@ -978,29 +1174,20 @@ export function computeOverlapAnalysis(
       cpmCoveredNodes,
       cpmCoveragePercentage,
       cpmMeanClustersPerNode,
+      totalShieldBlocked: 0,
+      deduplicatedCount: 0,
     };
   }
 
-  // 2. Build line graph adjacency list (unweighted, matching build_dual_graph in dual_graph_clustering.py)
-  const dualAdj: Map<number, number>[] = Array.from({ length: M }, () => new Map());
-  let dualEdgeCount = 0;
-
-  for (const u of sortedNodeIds) {
-    const incidentEdges = nodeToDualEdges.get(u);
-    if (!incidentEdges) continue;
-    const len = incidentEdges.length;
-    for (let i = 0; i < len; i++) {
-      const e1 = incidentEdges[i];
-      for (let j = i + 1; j < len; j++) {
-        const e2 = incidentEdges[j];
-        if (!dualAdj[e1].has(e2)) {
-          dualAdj[e1].set(e2, 1);
-          dualAdj[e2].set(e1, 1);
-          dualEdgeCount++;
-        }
-      }
-    }
-  }
+  // 2. Modul A: Build line graph L(G) with Adamic-Adar degree penalty for 'shielded', or unweighted for legacy modes
+  const lineGraphMethod = strategy === 'shielded' ? 'adamic_adar' : 'unweighted';
+  const { dualAdj, dualEdgeCount } = buildWeightedLineGraph(
+    sortedNodeIds,
+    nodeToDualEdges,
+    M,
+    lineGraphMethod,
+    0.0
+  );
 
   // 3. Run multi-level Louvain modularity optimization on the dual graph Gd
   const commOfDual = runMultilevelLouvain(dualAdj);
@@ -1025,45 +1212,61 @@ export function computeOverlapAnalysis(
     return inter;
   };
 
-  // 4. Match & attach dual clusters to original clusters (match_clusters_with_overlap)
+  // 4. Modul B: Match & expand base clusters with anti-leakage shield
   const rawOverlapClusters: {
     orig: ClusterGroup;
+    origLabels: string[];
     overlapCount: number;
     jaccardScore: number;
     words: string[];
     addedWords: string[];
     cliqueAddedWords: string[];
+    shieldBlockedWords: string[];
   }[] = [];
 
   for (const orig of origClusters) {
     const origSet = new Set(orig.words);
-    const combinedSet = new Set(orig.words);
+    let combinedSet = new Set(orig.words);
     const cliqueAddedSet = new Set<string>();
+    let shieldBlockedWords: string[] = [];
     let bestOverlap = 0;
     let bestJaccard = 0;
+    let bestDual: Set<string> | null = null;
 
-    if (strategy === 'best_overlap' || strategy === 'clique_hybrid') {
-      let bestDual: Set<string> | null = null;
+    for (const dSet of dualClusters) {
+      const inter = intersectCount(origSet, dSet);
+      if (inter === 0) continue;
+      const union = origSet.size + dSet.size - inter;
+      const jacc = union > 0 ? inter / union : 0;
 
-      for (const dSet of dualClusters) {
-        const inter = intersectCount(origSet, dSet);
-        if (inter === 0) continue;
-        const union = origSet.size + dSet.size - inter;
-        const jacc = union > 0 ? inter / union : 0;
+      if (inter > bestOverlap || (inter === bestOverlap && jacc > bestJaccard)) {
+        bestOverlap = inter;
+        bestJaccard = jacc;
+        bestDual = dSet;
+      }
+    }
 
-        if (inter > bestOverlap || (inter === bestOverlap && jacc > bestJaccard)) {
-          bestOverlap = inter;
-          bestJaccard = jacc;
-          bestDual = dSet;
+    if (strategy === 'shielded') {
+      // Handoff Modul B: Set-cover expansion with internal support shield (|N_G(w) ∩ C| >= 2)
+      const expanded = expandClusterWithSetCover(origSet, bestDual, adjUndirected, 2);
+      combinedSet = expanded.expandedSet;
+      shieldBlockedWords = expanded.shieldBlockedWords;
+
+      // Mark words that are also supported by a 3-clique with >= 2 core nodes in origSet
+      for (const cl of k3Cliques) {
+        const coreInOrig = cl.words.filter((w) => origSet.has(w));
+        if (coreInOrig.length < 2) continue;
+        for (const w of cl.words) {
+          if (!origSet.has(w) && combinedSet.has(w)) {
+            cliqueAddedSet.add(w);
+          }
         }
       }
-
+    } else if (strategy === 'best_overlap' || strategy === 'clique_hybrid') {
       if (bestDual) {
         for (const w of bestDual) combinedSet.add(w);
       }
 
-      // Clique-informed bridge attachment: if a 3-clique has >= 2 core nodes in origSet,
-      // attach any node w in that clique that forms at least one triangle (>= 2 links) with the core
       if (strategy === 'clique_hybrid') {
         for (const cl of k3Cliques) {
           const coreInOrig = cl.words.filter((w) => origSet.has(w));
@@ -1087,10 +1290,6 @@ export function computeOverlapAnalysis(
         if (inter === 0) continue;
         const union = origSet.size + dSet.size - inter;
         const jacc = union > 0 ? inter / union : 0;
-        if (jacc > bestJaccard) {
-          bestJaccard = jacc;
-          bestOverlap = inter;
-        }
         if (jacc >= jaccardThreshold) {
           for (const w of dSet) combinedSet.add(w);
         }
@@ -1110,20 +1309,31 @@ export function computeOverlapAnalysis(
     const cliqueAddedWords = sortedWords.filter((w) => cliqueAddedSet.has(w));
     rawOverlapClusters.push({
       orig,
+      origLabels: [orig.label],
       overlapCount: bestOverlap,
       jaccardScore: bestJaccard,
       words: sortedWords,
       addedWords,
       cliqueAddedWords,
+      shieldBlockedWords,
     });
   }
 
-  // Sort clusters descending by size (matching format_clusters_by_centrality)
+  // Sort clusters descending by size before Jaccard deduplication
   rawOverlapClusters.sort((a, b) => b.words.length - a.words.length);
 
+  // 5b. Modul C: Deduplicate collapsed clusters (Jaccard >= 0.85)
+  const { deduped: dedupedRawClusters, mergedCount: deduplicatedCount } =
+    deduplicateExpandedClusters(rawOverlapClusters, nodes, 0.85);
+
+  let totalShieldBlocked = 0;
+  for (const rc of dedupedRawClusters) {
+    totalShieldBlocked += rc.shieldBlockedWords.length;
+  }
+
   const usedLabels = new Set<string>();
-  const overlapClusters: OverlapClusterGroup[] = rawOverlapClusters.map((rc, idx) => {
-    let baseLabel = rc.words.slice(0, 2).join('-');
+  const overlapClusters: OverlapClusterGroup[] = dedupedRawClusters.map((rc, idx) => {
+    const baseLabel = rc.words.slice(0, 2).join('-');
     let label = baseLabel;
     let suffix = 2;
     while (usedLabels.has(label)) {
@@ -1137,13 +1347,15 @@ export function computeOverlapAnalysis(
     return {
       id: idx,
       label,
-      origLabel: rc.orig.label,
+      origLabel: rc.origLabels.join(' + '),
       overlapCount: rc.overlapCount,
       jaccardScore: rc.jaccardScore,
       color: rc.orig.color,
       words: rc.words,
       addedWords: rc.addedWords,
       cliqueAddedWords: rc.cliqueAddedWords,
+      shieldBlockedWords: rc.shieldBlockedWords,
+      mergedCores: rc.origLabels.length,
       inSetCover: false,
       setCoverNewlyAdded: 0,
     };
@@ -1222,5 +1434,7 @@ export function computeOverlapAnalysis(
     cpmCoveredNodes,
     cpmCoveragePercentage,
     cpmMeanClustersPerNode,
+    totalShieldBlocked,
+    deduplicatedCount,
   };
 }
