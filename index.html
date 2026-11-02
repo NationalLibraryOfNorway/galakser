@@ -26,6 +26,14 @@
         </div>
       </div>
       <div class="header-actions">
+        <button
+          type="button"
+          id="open-about-btn"
+          class="btn btn-sm"
+          title="Les om hvordan Ordgalakser bygger koordinasjonsgrafen og prøv eksempelord"
+        >
+          Om appen
+        </button>
         <button id="install-pwa-btn" class="btn btn-sm" hidden title="Installer som app">
           Installer app
         </button>
@@ -40,54 +48,6 @@
         </a>
       </div>
     </header>
-
-    <details class="about-banner">
-      <summary class="about-summary">
-        <span class="about-summary-title">Om ordgalakser – hvordan grafen bygges og tolkes</span>
-        <span class="about-summary-hint">
-          Koordinasjon (<em>x og y</em>) i to steg (<em>x → y → z</em>), klynger, klikker og overlapp · Klikk for å lese mer og prøve eksempler
-        </span>
-      </summary>
-      <div class="about-content">
-        <p>
-          <strong>Ordgalakser</strong> bygger et nettverk av ord ut fra <em>koordinasjoner</em> i Nasjonalbibliotekets tekstsamlinger – altså uttrykk der ord opptrer sideordnet med bindeord som «og», «eller» og komma (f.eks. <em>«is og snø»</em> eller <em>«frihet og demokrati»</em>). Når to ord stadig sidestilles i språkbruken, peker det på at de tilhører samme semantiske felt eller samme diskursive ramme.
-        </p>
-        <p>
-          Fra søkeordet <em>x</em> går applikasjonen <strong>to steg ut i koordinasjonsgrafen</strong> (<em>x → y → z</em>): Først hentes de mest sentrale ordene <em>y</em> som koordineres direkte med <em>x</em>, og deretter ordene <em>z</em> som i sin tur koordineres med <em>y</em>. Dermed fanger grafen både det nære nabolaget rundt søkeordet og de bredere tematiske sammenhengene som naboordene inngår i.
-        </p>
-        <p>
-          Ved å gruppere grafen i <strong>clustre</strong> (Leiden/Louvain), <strong>klikk-hierarkier</strong> ($k$-klikker) og <strong>overlappsclustre</strong> (via linjegrafen $L(G)$ med lekkasjestopper) avdekker verktøyet både diskursive mønstre og ulike betydningsaspekter ved ord:
-        </p>
-        <ul class="about-examples-list">
-          <li>
-            <strong>Flertydige hverdagsord (polysemi og homonymi):</strong> Et ord som
-            <button type="button" class="example-word-chip" data-example-word="is">is</button>
-            forgreiner seg i tydelige klynger for vær og føre (<em>snø, kulde, slaps</em>), mat og dessert (<em>kaker, brus, sjokolade</em>) og polare strøk, mens
-            <button type="button" class="example-word-chip" data-example-word="pålegg">pålegg</button>
-            splittes mellom matvarer (<em>brød, smør, pølser</em>) og juridiske direktiver (<em>forbud, instrukser, tvangsmulkt</em>).
-          </li>
-          <li>
-            <strong>Politiske og ideologiske begreper (diskursive sammenhenger):</strong> Søk på
-            <button type="button" class="example-word-chip" data-example-word="kommunisme">kommunisme</button>
-            eller
-            <button type="button" class="example-word-chip" data-example-word="frihet">frihet</button>
-            viser hvilke begreper som historisk stilles sammen i offentligheten – fra styringsformer og ideologiske motpoler (<em>fascisme, nazisme, kapitalisme, sosialisme</em>) til verdibegreper og samfunnsinstitusjoner.
-          </li>
-          <li>
-            <strong>Stedsnavn og geografi:</strong> Et stedsnavn som
-            <button type="button" class="example-word-chip" data-example-word="Paris">Paris</button>
-            samler både europeiske metropoler og kunst- og kulturbyer (<em>London, Berlin, Roma, Wien</em>) og viser hvilke geografiske og kulturelle akser stedet inngår i.
-          </li>
-          <li>
-            <strong>Fornavn og etternavn (person- og kulturkretser):</strong> Fornavn som
-            <button type="button" class="example-word-chip" data-example-word="Per">Per</button>
-            avtegner typiske navnepar og fortellingskontekster (<em>Pål, Espen, Kari, Ola</em>), mens etternavn som
-            <button type="button" class="example-word-chip" data-example-word="Hamsun">Hamsun</button>
-            plasserer forfatteren i det litterære og idéhistoriske landskapet (<em>Ibsen, Bjørnson, Undset, Kinck, Dostojevskij</em>).
-          </li>
-        </ul>
-      </div>
-    </details>
 
     <form id="galaxy-form" class="search-bar">
       <div class="field-group field-words">
@@ -265,6 +225,15 @@
           >
             Sti mellom noder
           </button>
+          <button
+            type="button"
+            class="tab-btn"
+            role="tab"
+            aria-selected="false"
+            data-tab="about"
+          >
+            Om appen
+          </button>
         </div>
 
         <div class="tab-content">
@@ -401,6 +370,53 @@
             </div>
             <datalist id="graph-nodes-datalist"></datalist>
             <div id="paths-results"></div>
+          </section>
+
+          <!-- Tab 6: Om appen -->
+          <section id="tab-about" class="tab-pane" role="tabpanel" hidden>
+            <div class="group-card about-card">
+              <h3 class="about-card-heading">Hvordan Ordgalakser bygger og analyserer nettverket</h3>
+              <p>
+                <strong>Ordgalakser</strong> bygger et nettverk av ord ut fra <em>koordinasjoner</em> i Nasjonalbibliotekets tekstsamlinger – altså uttrykk der ord opptrer sideordnet med bindeord som «og», «eller» og komma (f.eks. <em>«is og snø»</em> eller <em>«frihet og demokrati»</em>). Når to ord stadig sidestilles i språkbruken, peker det på at de tilhører samme semantiske felt eller samme diskursive ramme.
+              </p>
+              <p>
+                Fra søkeordet <em>x</em> går applikasjonen <strong>to steg ut i koordinasjonsgrafen</strong> (<em>x → y → z</em>): Først hentes de mest sentrale ordene <em>y</em> som koordineres direkte med <em>x</em>, og deretter ordene <em>z</em> som i sin tur koordineres med <em>y</em>. Dermed fanger grafen både det nære nabolaget rundt søkeordet og de bredere tematiske sammenhengene som naboordene inngår i.
+              </p>
+              <p>
+                Ved å gruppere grafen i <strong>clustre</strong> (Leiden/Louvain), <strong>klikk-hierarkier</strong> (<em>k</em>-klikker) og <strong>overlappsclustre</strong> (via linjegrafen <em>L(G)</em> med lekkasjestopper) viser verktøyet hvordan ord henger sammen, og det kan brukes til å finne både diskursive sammenhenger og ulike betydningsaspekter ved ord:
+              </p>
+              <ul class="about-examples-list">
+                <li>
+                  <strong>Flertydige hverdagsord (betydningsaspekter, polysemi og homonymi):</strong> Et ord som
+                  <button type="button" class="example-word-chip" data-example-word="is">is</button>
+                  forgreiner seg i tydelige klynger for vær og føre (<em>snø, kulde, slaps</em>), mat og dessert (<em>kaker, brus, sjokolade</em>) og polare strøk, mens
+                  <button type="button" class="example-word-chip" data-example-word="pålegg">pålegg</button>
+                  splittes mellom matvarer (<em>brød, smør, pølser</em>) og juridiske direktiver (<em>forbud, instrukser, tvangsmulkt</em>).
+                </li>
+                <li>
+                  <strong>Politiske og ideologiske begreper (diskursive sammenhenger):</strong> Søk på
+                  <button type="button" class="example-word-chip" data-example-word="kommunisme">kommunisme</button>
+                  eller
+                  <button type="button" class="example-word-chip" data-example-word="frihet">frihet</button>
+                  viser hvilke begreper som historisk stilles sammen i offentligheten – fra styringsformer og ideologiske motpoler (<em>fascisme, nazisme, kapitalisme, sosialisme</em>) til verdibegreper og samfunnsinstitusjoner.
+                </li>
+                <li>
+                  <strong>Stedsnavn og geografi:</strong> Et stedsnavn som
+                  <button type="button" class="example-word-chip" data-example-word="Paris">Paris</button>
+                  samler både europeiske metropoler og kunst- og kulturbyer (<em>London, Berlin, Roma, Wien</em>) og viser hvilke geografiske og kulturelle akser stedet inngår i.
+                </li>
+                <li>
+                  <strong>Fornavn og etternavn (person- og kulturkretser):</strong> Fornavn som
+                  <button type="button" class="example-word-chip" data-example-word="Per">Per</button>
+                  avtegner typiske navnepar og fortellingskontekster (<em>Pål, Espen, Kari, Ola</em>), mens etternavn som
+                  <button type="button" class="example-word-chip" data-example-word="Hamsun">Hamsun</button>
+                  plasserer forfatteren i det litterære og idéhistoriske landskapet (<em>Ibsen, Bjørnson, Undset, Kinck, Dostojevskij</em>).
+                </li>
+              </ul>
+              <p class="about-card-tip">
+                <strong>Tips:</strong> Klikk på et av eksempelordene over for å bygge galaksen direkte, og bytt mellom <strong>Ordgalakse</strong> og <strong>Overlappsgraf</strong> i grafvinduet for å se både enkeltordene og hvordan klyngene henger sammen via bro-ord.
+              </p>
+            </div>
           </section>
         </div>
       </aside>

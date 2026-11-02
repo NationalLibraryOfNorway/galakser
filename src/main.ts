@@ -315,6 +315,8 @@ inspSoloWordBtn.addEventListener('click', () => {
 });
 
 // Tab switching
+const openAboutBtn = document.getElementById('open-about-btn') as HTMLButtonElement | null;
+
 function switchTab(tabName: string) {
   tabBtns.forEach((btn) => {
     const isTarget = btn.dataset.tab === tabName;
@@ -326,6 +328,7 @@ function switchTab(tabName: string) {
     cliques: document.getElementById('tab-cliques'),
     centrality: document.getElementById('tab-centrality'),
     paths: document.getElementById('tab-paths'),
+    about: document.getElementById('tab-about'),
   };
   for (const [key, pane] of Object.entries(panes)) {
     if (pane) pane.hidden = key !== tabName;
@@ -336,6 +339,11 @@ tabBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
     if (btn.dataset.tab) switchTab(btn.dataset.tab);
   });
+});
+
+openAboutBtn?.addEventListener('click', () => {
+  switchTab('about');
+  document.getElementById('tab-about')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 
 function getSelectedOverlapStrategy(): { strategy: OverlapStrategy; threshold: number } {
