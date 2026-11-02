@@ -320,6 +320,10 @@ function renderOverlapClusters(graph: GalaxyGraph) {
     ov.deduplicatedCount > 0
       ? `<span class="meta-tag meta-tag-accent" title="Kollapsede klynger med Jaccard-likhet ≥ 0.85 slått sammen">Jaccard-deduplisert: −${ov.deduplicatedCount} kollaps</span>`
       : '';
+  const hubPrunedSummaryTag =
+    ov.prunedHubClusters.length > 0
+      ? `<span class="meta-tag meta-tag-accent" title="Sanerte uoppløste hub-klynger (H_norm > 0.75 og I < 0.10): ${ov.prunedHubClusters.join(', ')}">Hub-filter fjernet ${ov.prunedHubClusters.length} (${ov.prunedHubClusters.join(', ')})</span>`
+      : '';
 
   const baseName = clusterAlgoSelect.value === 'leiden' ? 'Leiden' : 'Louvain';
   const cmpLine = document.createElement('div');
@@ -331,6 +335,7 @@ function renderOverlapClusters(graph: GalaxyGraph) {
     <span class="meta-tag meta-tag-accent" title="Minste kolleksjon av overlappsclustre som dekker 100 % av nodene">Set-cover: ${ov.setCoverCount} av ${ov.clusters.length} clustre</span>
     ${shieldSummaryTag}
     ${dedupSummaryTag}
+    ${hubPrunedSummaryTag}
   `;
 
   overlapStatsContainer.append(statsGrid, cmpLine);
@@ -422,9 +427,11 @@ function renderOverlapClusters(graph: GalaxyGraph) {
     const coverTag = cluster.inSetCover
       ? `<span class="meta-tag" title="Inngår i grådig set-cover og dekker ${cluster.setCoverNewlyAdded} nye noder">Set-cover (+${cluster.setCoverNewlyAdded})</span>`
       : '';
+    const entropyTag = `<span class="meta-tag" title="Spredningsentropi H_norm = ${cluster.entropyNorm.toFixed(2)} (0 = lokalt naboskap, 1 = spredt over alle klynger) · Innovasjonsgrad I = ${(cluster.innovationRate * 100).toFixed(0)} % (${cluster.uniqueWordCount}/${cluster.words.length} unike ord som kun finnes i denne klyngen)">H: ${cluster.entropyNorm.toFixed(2)} · I: ${Math.round(cluster.innovationRate * 100)} % (${cluster.uniqueWordCount}/${cluster.words.length})</span>`;
     submeta.innerHTML = `
-      <span class="meta-tag" title="Opprinnelig Louvain-anker før L(G)-utvidelse">Anker: ${cluster.origLabel}</span>
+      <span class="meta-tag" title="Opprinnelig anker før L(G)-utvidelse">Anker: ${cluster.origLabel}</span>
       ${addedTag}
+      ${entropyTag}
       ${shieldTag}
       ${mergedTag}
       ${coverTag}

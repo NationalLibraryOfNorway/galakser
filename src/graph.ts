@@ -70,6 +70,9 @@ export interface OverlapClusterGroup {
   cliqueAddedWords: string[];
   shieldBlockedWords: string[];
   mergedCores: number;
+  entropyNorm: number;
+  innovationRate: number;
+  uniqueWordCount: number;
   inSetCover: boolean;
   setCoverNewlyAdded: number;
 }
@@ -91,6 +94,7 @@ export interface OverlapAnalysis {
   cpmMeanClustersPerNode: number;
   totalShieldBlocked: number;
   deduplicatedCount: number;
+  prunedHubClusters: string[];
 }
 
 export interface GalaxyGraph {
@@ -1343,11 +1347,171 @@ function deduplicateExpandedClusters<
 }
 
 /**
- * Dual Graph (Line Graph) + Louvain + Lekkasjestopper + Set Cover:
+ * Modul D: Semantisk spredningsentropi H_norm(C_i) og innovasjonsgrad I(C_i)
+ * for deteksjon og sanering av uoppløste parasitt-/hub-klynger (som f.eks. klassisk-skøyting):
+ *   P(C_j | C_i) = |C_i ∩ C_j| / sum_{k != i} |C_i ∩ C_k|
+ *   H(C_i) = - sum_{j != i} P(C_j | C_i) * log2(P(C_j | C_i))
+ *   H_norm(C_i) = H(C_i) / log2(K - 1)
+ *   I(C_i) = |C_i \ union_{j != i} C_j| / |C_i|
+ * Når H_norm(C_i) > tauH (0.75) og I(C_i) < tauI (0.10), fjernes C_i som en uoppløst hub-artifakt,
+ * og eventuelle unike rest-ord omplasseres til sterkeste naboklynge for å bevare 100 % dekning.
+ */
+function computeClusterEntropyAndInnovation(
+  clusters: { words: string[] }[]
+): { entropyNorm: number; innovationRate: number; uniqueWords: string[] }[] {
+  const K = clusters.length;
+  const sets = clusters.map((c) => new Set(c.words));
+
+  return clusters.map((ci, i) => {
+    const setI = sets[i];
+    const overlaps: number[] = [];
+    let sumOverlap = 0;
+    const unionOthers = new Set<string>();
+
+    for (let j = 0; j < K; j++) {
+      if (j === i) continue;
+      let inter = 0;
+      for (const w of sets[j]) {
+        unionOthers.add(w);
+        if (setI.has(w)) inter++;
+      }
+      if (inter > 0) {
+        overlaps.push(inter);
+        sumOverlap += inter;
+      }
+    }
+
+    let H = 0;
+    if (sumOverlap > 0) {
+      for (const inter of overlaps) {
+        const p = inter / sumOverlap;
+        if (p > 0) {
+          H -= p * Math.log2(p);
+        }
+      }
+    }
+
+    const entropyNorm = K > 2 ? H / Math.log2(K - 1) : 0;
+    const uniqueWords: string[] = [];
+    for (const w of setI) {
+      if (!unionOthers.has(w)) uniqueWords.push(w);
+    }
+    const innovationRate = setI.size > 0 ? uniqueWords.length / setI.size : 0;
+
+    return {
+      entropyNorm,
+      innovationRate,
+      uniqueWords,
+    };
+  });
+}
+
+function pruneHubClustersByEntropy<
+  T extends {
+    orig: ClusterGroup;
+    origLabels: string[];
+    overlapCount: number;
+    jaccardScore: number;
+    words: string[];
+    addedWords: string[];
+    cliqueAddedWords: string[];
+    shieldBlockedWords: string[];
+  },
+>(
+  clusters: T[],
+  nodes: Map<string, GraphNode>,
+  adjUndirected: Map<string, Map<string, number>>,
+  tauH: number = 0.75,
+  tauI: number = 0.1
+): {
+  sanitized: (T & { entropyNorm: number; innovationRate: number; uniqueWordCount: number })[];
+  prunedHubLabels: string[];
+} {
+  const active = clusters.map((c) => ({
+    ...c,
+    words: [...c.words],
+    addedWords: [...c.addedWords],
+  }));
+  const prunedHubLabels: string[] = [];
+
+  const sortByCentrality = (wordList: Iterable<string>): string[] =>
+    Array.from(new Set(wordList)).sort((a, b) => {
+      const degDiff =
+        (nodes.get(b)?.undirectedDegree ?? 0) - (nodes.get(a)?.undirectedDegree ?? 0);
+      if (degDiff !== 0) return degDiff;
+      const totDiff = (nodes.get(b)?.totalDegree ?? 0) - (nodes.get(a)?.totalDegree ?? 0);
+      return totDiff !== 0 ? totDiff : a.localeCompare(b, 'nb');
+    });
+
+  while (active.length > 2) {
+    const metrics = computeClusterEntropyAndInnovation(active);
+    let worstIdx = -1;
+    let worstScore = -Infinity;
+
+    for (let i = 0; i < active.length; i++) {
+      const { entropyNorm, innovationRate } = metrics[i];
+      if (entropyNorm > tauH && innovationRate < tauI) {
+        const score = entropyNorm - innovationRate;
+        if (score > worstScore) {
+          worstScore = score;
+          worstIdx = i;
+        }
+      }
+    }
+
+    if (worstIdx === -1) break;
+
+    const victim = active[worstIdx];
+    const { entropyNorm, innovationRate, uniqueWords } = metrics[worstIdx];
+    const victimLabel = victim.words.slice(0, 2).join('-');
+    prunedHubLabels.push(
+      `${victimLabel} (H=${entropyNorm.toFixed(2)}, I=${Math.round(innovationRate * 100)} %)`
+    );
+    active.splice(worstIdx, 1);
+
+    // Re-home any orphaned unique words to the remaining cluster with strongest edge connection
+    for (const u of uniqueWords) {
+      const nbrs = adjUndirected.get(u);
+      let bestTarget = active[0];
+      let bestWeight = -1;
+      for (const cand of active) {
+        let wSum = 0;
+        if (nbrs) {
+          for (const w of cand.words) {
+            wSum += nbrs.get(w) ?? 0;
+          }
+        }
+        if (wSum > bestWeight) {
+          bestWeight = wSum;
+          bestTarget = cand;
+        }
+      }
+      if (bestTarget && !bestTarget.words.includes(u)) {
+        bestTarget.words = sortByCentrality([...bestTarget.words, u]);
+        if (!bestTarget.addedWords.includes(u)) {
+          bestTarget.addedWords.push(u);
+        }
+      }
+    }
+  }
+
+  const finalMetrics = computeClusterEntropyAndInnovation(active);
+  const sanitized = active.map((c, idx) => ({
+    ...c,
+    entropyNorm: finalMetrics[idx].entropyNorm,
+    innovationRate: finalMetrics[idx].innovationRate,
+    uniqueWordCount: finalMetrics[idx].uniqueWords.length,
+  }));
+
+  return { sanitized, prunedHubLabels };
+}
+
+/**
+ * Dual Graph (Line Graph) + Louvain/Leiden + Lekkasjestopper + Hub-sanering + Set Cover:
  * 1. Modul A: Bygg grad-penalisert linjegraf L(G) (Adamic-Adar 1/ln(deg(v))) der kanter i G er noder.
  * 2. Kjør Louvain på L(G) og projiser kantklyngene tilbake til ordmengder.
  * 3. Modul B: Utvid grunnklyngene med lekkasjestopper (støtte |N_G(w) ∩ C| >= 2 ved 'shielded').
- * 4. Modul C: Dedupliser kollapsede klynger med Jaccard-likhet >= 0.85, ranger etter sentralitet og beregn Set Cover.
+ * 4. Modul C & D: Dedupliser (Jaccard >= 0.85) og saner uoppløste hub-klynger (H_norm > 0.75, I < 0.10).
  */
 export function computeOverlapAnalysis(
   nodes: Map<string, GraphNode>,
@@ -1414,6 +1578,7 @@ export function computeOverlapAnalysis(
       cpmMeanClustersPerNode,
       totalShieldBlocked: 0,
       deduplicatedCount: 0,
+      prunedHubClusters: [],
     };
   }
 
@@ -1564,13 +1729,17 @@ export function computeOverlapAnalysis(
   const { deduped: dedupedRawClusters, mergedCount: deduplicatedCount } =
     deduplicateExpandedClusters(rawOverlapClusters, nodes, 0.85);
 
+  // 5c. Modul D: Detect and prune unresolved parasite hub-clusters (H_norm > 0.75 and I < 0.10)
+  const { sanitized: sanitizedClusters, prunedHubLabels: prunedHubClusters } =
+    pruneHubClustersByEntropy(dedupedRawClusters, nodes, adjUndirected, 0.75, 0.1);
+
   let totalShieldBlocked = 0;
-  for (const rc of dedupedRawClusters) {
+  for (const rc of sanitizedClusters) {
     totalShieldBlocked += rc.shieldBlockedWords.length;
   }
 
   const usedLabels = new Set<string>();
-  const overlapClusters: OverlapClusterGroup[] = dedupedRawClusters.map((rc, idx) => {
+  const overlapClusters: OverlapClusterGroup[] = sanitizedClusters.map((rc, idx) => {
     const baseLabel = rc.words.slice(0, 2).join('-');
     let label = baseLabel;
     let suffix = 2;
@@ -1594,6 +1763,9 @@ export function computeOverlapAnalysis(
       cliqueAddedWords: rc.cliqueAddedWords,
       shieldBlockedWords: rc.shieldBlockedWords,
       mergedCores: rc.origLabels.length,
+      entropyNorm: rc.entropyNorm,
+      innovationRate: rc.innovationRate,
+      uniqueWordCount: rc.uniqueWordCount,
       inSetCover: false,
       setCoverNewlyAdded: 0,
     };
@@ -1674,5 +1846,6 @@ export function computeOverlapAnalysis(
     cpmMeanClustersPerNode,
     totalShieldBlocked,
     deduplicatedCount,
+    prunedHubClusters,
   };
 }
