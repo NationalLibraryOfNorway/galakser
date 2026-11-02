@@ -1,4 +1,6 @@
-import { GalaxyGraph, GraphNode } from './graph';
+import { ClusterOverlapEdge, GalaxyGraph, GraphNode } from './graph';
+
+export type GraphViewMode = 'words' | 'clusters';
 
 export interface SimNode extends GraphNode {
   x: number;
@@ -18,6 +20,8 @@ export class GraphVisualizer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private graph: GalaxyGraph | null = null;
+  private viewMode: GraphViewMode = 'words';
+  private clusterEdgeMeta = new Map<string, ClusterOverlapEdge>();
   private simNodes: SimNode[] = [];
   private simNodeMap = new Map<string, SimNode>();
 
@@ -68,8 +72,18 @@ export class GraphVisualizer {
     this.resize();
   }
 
-  public setGraph(graph: GalaxyGraph) {
+  public setGraph(
+    graph: GalaxyGraph,
+    mode: GraphViewMode = 'words',
+    clusterEdges: ClusterOverlapEdge[] = []
+  ) {
     this.graph = graph;
+    this.viewMode = mode;
+    this.clusterEdgeMeta.clear();
+    for (const ce of clusterEdges) {
+      this.clusterEdgeMeta.set(`${ce.source}--${ce.target}`, ce);
+      this.clusterEdgeMeta.set(`${ce.target}--${ce.source}`, ce);
+    }
     this.selectedNode = null;
     this.hoveredNode = null;
     this.highlightedNodeIds.clear();
@@ -85,14 +99,25 @@ export class GraphVisualizer {
     const radiusSpread = Math.min(this.canvas.clientWidth, this.canvas.clientHeight) * 0.28 || 180;
 
     nodes.forEach((n, idx) => {
-      const clusterAngle = (2 * Math.PI * n.communityId) / clusterCount;
-      const jitterAngle = (2 * Math.PI * idx) / Math.max(1, count);
-      const r = radiusSpread * (0.35 + 0.65 * Math.random());
-      const x = Math.cos(clusterAngle) * (radiusSpread * 0.45) + Math.cos(jitterAngle) * r * 0.5;
-      const y = Math.sin(clusterAngle) * (radiusSpread * 0.45) + Math.sin(jitterAngle) * r * 0.5;
+      let x = 0;
+      let y = 0;
+      let radius = 10;
 
-      // Node radius scaled by degree centrality (matching 100 * cent[i] in st_agraph.py)
-      const radius = Math.max(6, Math.min(28, 6 + n.degreeCentrality * 34));
+      if (mode === 'clusters') {
+        const angle = (2 * Math.PI * idx) / Math.max(1, count) - Math.PI / 2;
+        const r = radiusSpread * 0.72;
+        x = Math.cos(angle) * r;
+        y = Math.sin(angle) * r;
+        radius = Math.max(15, Math.min(34, 10 + Math.sqrt(Math.max(1, n.size)) * 3.1));
+      } else {
+        const clusterAngle = (2 * Math.PI * n.communityId) / clusterCount;
+        const jitterAngle = (2 * Math.PI * idx) / Math.max(1, count);
+        const r = radiusSpread * (0.35 + 0.65 * Math.random());
+        x = Math.cos(clusterAngle) * (radiusSpread * 0.45) + Math.cos(jitterAngle) * r * 0.5;
+        y = Math.sin(clusterAngle) * (radiusSpread * 0.45) + Math.sin(jitterAngle) * r * 0.5;
+        // Node radius scaled by degree centrality (matching 100 * cent[i] in st_agraph.py)
+        radius = Math.max(6, Math.min(28, 6 + n.degreeCentrality * 34));
+      }
 
       const simNode: SimNode = {
         ...n,
@@ -250,10 +275,11 @@ export class GraphVisualizer {
 
     const nodes = this.simNodes;
     const N = nodes.length;
-    const repulsionStrength = 950 * this.spread * this.spread;
-    const springLength = 85 * this.spread;
+    const isClusterView = this.viewMode === 'clusters';
+    const repulsionStrength = (isClusterView ? 1750 : 950) * this.spread * this.spread;
+    const springLength = (isClusterView ? 140 : 85) * this.spread;
     const springK = 0.045;
-    const centerGravity = 0.012;
+    const centerGravity = isClusterView ? 0.016 : 0.012;
 
     // 1. All-pairs repulsion + collision avoidance
     for (let i = 0; i < N; i++) {
@@ -303,8 +329,12 @@ export class GraphVisualizer {
       const dy = t.y - s.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
       const displacement = dist - springLength;
-      const sameClusterBoost = s.communityId === t.communityId ? 1.35 : 0.85;
-      const force = displacement * springK * sameClusterBoost * this.alpha;
+      const weightBoost = isClusterView
+        ? 0.9 + Math.min(2.2, Math.log2(1 + Math.max(1, edge.weight)) * 0.65)
+        : s.communityId === t.communityId
+          ? 1.35
+          : 0.85;
+      const force = displacement * springK * weightBoost * this.alpha;
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -571,7 +601,8 @@ export class GraphVisualizer {
       const dist = Math.hypot(dx, dy) || 1;
 
       // Slight curve offset so bidirectional edges are both clearly visible
-      const curveOffset = Math.min(22, dist * 0.12);
+      const isClusterView = this.viewMode === 'clusters';
+      const curveOffset = isClusterView ? Math.min(12, dist * 0.05) : Math.min(22, dist * 0.12);
       const mx = (s.x + t.x) / 2 - (dy / dist) * curveOffset;
       const my = (s.y + t.y) / 2 + (dx / dist) * curveOffset;
 
@@ -579,23 +610,62 @@ export class GraphVisualizer {
       ctx.moveTo(s.x, s.y);
       ctx.quadraticCurveTo(mx, my, t.x, t.y);
 
+      const clusterStrokeWidth = isClusterView
+        ? (1.6 + Math.min(7.5, Math.max(1, edge.weight) * 0.9)) / Math.sqrt(this.scale)
+        : 1.15 / Math.sqrt(this.scale);
+
       if (isPathEdge) {
         ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 3 / Math.sqrt(this.scale);
+        ctx.lineWidth = (isClusterView ? Math.max(3.5, clusterStrokeWidth * 1.15) : 3) / Math.sqrt(this.scale);
         ctx.globalAlpha = 0.98;
       } else if (isFocusedEdge || isSubsetEdge) {
         ctx.strokeStyle = isDark ? '#38bdf8' : '#0284c7';
-        ctx.lineWidth = 2 / Math.sqrt(this.scale);
-        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = isClusterView
+          ? Math.max(2.6 / Math.sqrt(this.scale), clusterStrokeWidth * 1.15)
+          : 2 / Math.sqrt(this.scale);
+        ctx.globalAlpha = 0.92;
       } else {
         ctx.strokeStyle = isDark ? '#475569' : '#93c5fd';
-        ctx.lineWidth = 1.15 / Math.sqrt(this.scale);
-        ctx.globalAlpha = dimmed ? 0.14 : 0.48;
+        ctx.lineWidth = clusterStrokeWidth;
+        ctx.globalAlpha = dimmed ? 0.14 : isClusterView ? 0.68 : 0.48;
       }
       ctx.stroke();
 
-      // Draw directional arrowhead near target node boundary
-      if (this.showArrows && (!dimmed || isPathEdge)) {
+      // In cluster-overlap mode, draw overlap strength + top shared bridge words at edge midpoint
+      if (isClusterView && this.fontSize > 0 && (!dimmed || isFocusedEdge || isSubsetEdge)) {
+        const meta = this.clusterEdgeMeta.get(`${s.id}--${t.id}`);
+        const badgeX = 0.25 * s.x + 0.5 * mx + 0.25 * t.x;
+        const badgeY = 0.25 * s.y + 0.5 * my + 0.25 * t.y;
+        const previewWords = meta
+          ? meta.sharedWords.slice(0, 2).join(', ') + (meta.sharedWords.length > 2 ? '…' : '')
+          : '';
+        const badgeText =
+          isFocusedEdge && previewWords
+            ? `${edge.weight} · ${previewWords}`
+            : previewWords && edge.weight <= 2
+              ? `${edge.weight} (${previewWords})`
+              : `${edge.weight} ord`;
+
+        const badgeFontPx = Math.max(8.5, (this.fontSize - 2) / Math.pow(this.scale, 0.25));
+        ctx.font = `600 ${badgeFontPx}px system-ui, -apple-system, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.globalAlpha = dimmed ? 0.2 : 0.94;
+        ctx.lineWidth = 3 / Math.sqrt(this.scale);
+        ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+        ctx.strokeText(badgeText, badgeX, badgeY);
+        ctx.fillStyle = isFocusedEdge
+          ? isDark
+            ? '#38bdf8'
+            : '#0369a1'
+          : isDark
+            ? '#cbd5e1'
+            : '#334155';
+        ctx.fillText(badgeText, badgeX, badgeY);
+      }
+
+      // Draw directional arrowhead near target node boundary (only in directed word mode)
+      if (!isClusterView && this.showArrows && (!dimmed || isPathEdge)) {
         const angle = Math.atan2(t.y - my, t.x - mx);
         const tipX = t.x - Math.cos(angle) * (t.radius + 2);
         const tipY = t.y - Math.sin(angle) * (t.radius + 2);
@@ -650,10 +720,20 @@ export class GraphVisualizer {
       ctx.strokeStyle = isDark ? '#0f172a' : '#ffffff';
       ctx.stroke();
 
+      // In cluster view, render cluster size (word count) inside the circle
+      if (this.viewMode === 'clusters') {
+        const innerPx = Math.max(9, Math.min(13, node.radius * 0.56));
+        ctx.font = `700 ${innerPx}px system-ui, -apple-system, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(String(node.size), node.x, node.y + 0.5);
+      }
+
       // Node label
       if (this.fontSize > 0) {
         const fontPx = Math.max(9, this.fontSize / Math.pow(this.scale, 0.25));
-        ctx.font = `${isPrimary ? 700 : 500} ${fontPx}px system-ui, -apple-system, sans-serif`;
+        ctx.font = `${isPrimary || this.viewMode === 'clusters' ? 700 : 500} ${fontPx}px system-ui, -apple-system, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 

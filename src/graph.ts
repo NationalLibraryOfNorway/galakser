@@ -77,8 +77,18 @@ export interface OverlapClusterGroup {
   setCoverNewlyAdded: number;
 }
 
+export interface ClusterOverlapEdge {
+  source: string;
+  target: string;
+  sharedCount: number;
+  jaccard: number;
+  overlapCoeff: number;
+  sharedWords: string[];
+}
+
 export interface OverlapAnalysis {
   clusters: OverlapClusterGroup[];
+  clusterEdges: ClusterOverlapEdge[];
   setCoverCount: number;
   dualNodeCount: number;
   dualEdgeCount: number;
@@ -1563,6 +1573,7 @@ export function computeOverlapAnalysis(
   if (M === 0 || origClusters.length === 0) {
     return {
       clusters: [],
+      clusterEdges: [],
       setCoverCount: 0,
       dualNodeCount: 0,
       dualEdgeCount: 0,
@@ -1829,8 +1840,35 @@ export function computeOverlapAnalysis(
     );
   });
 
+  // 8. Compute pairwise cluster overlap edges for the Overlappsgraf meta-network
+  const clusterEdges: ClusterOverlapEdge[] = [];
+  for (let i = 0; i < overlapClusters.length; i++) {
+    const cA = overlapClusters[i];
+    const setA = new Set(cA.words);
+    for (let j = i + 1; j < overlapClusters.length; j++) {
+      const cB = overlapClusters[j];
+      const sharedWords = cB.words.filter((w) => setA.has(w));
+      if (sharedWords.length === 0) continue;
+      const unionSize = cA.words.length + cB.words.length - sharedWords.length;
+      const minSize = Math.min(cA.words.length, cB.words.length);
+      clusterEdges.push({
+        source: cA.label,
+        target: cB.label,
+        sharedCount: sharedWords.length,
+        jaccard: unionSize > 0 ? sharedWords.length / unionSize : 0,
+        overlapCoeff: minSize > 0 ? sharedWords.length / minSize : 0,
+        sharedWords,
+      });
+    }
+  }
+
+  clusterEdges.sort(
+    (a, b) => b.sharedCount - a.sharedCount || b.overlapCoeff - a.overlapCoeff
+  );
+
   return {
     clusters: overlapClusters,
+    clusterEdges,
     setCoverCount,
     dualNodeCount: M,
     dualEdgeCount,
@@ -1847,5 +1885,76 @@ export function computeOverlapAnalysis(
     totalShieldBlocked,
     deduplicatedCount,
     prunedHubClusters,
+  };
+}
+
+/**
+ * Bygger en metagraf («Overlappsgraf») over overlappsclustrene der hver node er en
+ * utvidet klynge navngitt ved sine to mest sentrale ord, og hver kant har styrke lik
+ * graden av overlapp (antall delte bro-ord |C_i ∩ C_j|).
+ */
+export function buildClusterOverlapGraph(graph: GalaxyGraph): GalaxyGraph {
+  const ov = graph.overlap;
+  const nodes = new Map<string, GraphNode>();
+  const edges: GraphEdge[] = [];
+  const adjDirected = new Map<string, Map<string, number>>();
+  const adjReverse = new Map<string, Map<string, number>>();
+  const adjUndirected = new Map<string, Map<string, number>>();
+
+  for (const oc of ov.clusters) {
+    adjDirected.set(oc.label, new Map());
+    adjReverse.set(oc.label, new Map());
+    adjUndirected.set(oc.label, new Map());
+  }
+
+  for (const ce of ov.clusterEdges) {
+    edges.push({
+      source: ce.source,
+      target: ce.target,
+      weight: ce.sharedCount,
+    });
+    adjDirected.get(ce.source)?.set(ce.target, ce.sharedCount);
+    adjReverse.get(ce.target)?.set(ce.source, ce.sharedCount);
+    adjUndirected.get(ce.source)?.set(ce.target, ce.sharedCount);
+    adjUndirected.get(ce.target)?.set(ce.source, ce.sharedCount);
+  }
+
+  const maxClusters = Math.max(1, ov.clusters.length - 1);
+  for (const oc of ov.clusters) {
+    const nbrMap = adjUndirected.get(oc.label) ?? new Map<string, number>();
+    let sumShared = 0;
+    for (const w of nbrMap.values()) sumShared += w;
+    const deg = nbrMap.size;
+
+    nodes.set(oc.label, {
+      id: oc.label,
+      size: oc.words.length,
+      inDegree: deg,
+      outDegree: deg,
+      totalDegree: sumShared,
+      undirectedDegree: deg,
+      degreeCentrality: deg / maxClusters,
+      betweennessCentrality: oc.entropyNorm,
+      closenessCentrality: oc.innovationRate,
+      communityId: oc.id,
+      communityLabel: oc.origLabel,
+      color: oc.color,
+    });
+  }
+
+  return {
+    nodes,
+    edges,
+    adjDirected,
+    adjReverse,
+    adjUndirected,
+    clusters: ov.clusters.map((oc) => ({
+      id: oc.id,
+      label: oc.label,
+      color: oc.color,
+      words: oc.words,
+    })),
+    cliques: [],
+    overlap: ov,
   };
 }

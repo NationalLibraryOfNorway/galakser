@@ -96,6 +96,24 @@
         <canvas id="galaxy-canvas"></canvas>
 
         <div class="graph-toolbar">
+          <div class="view-toggle-group graph-mode-toggle" role="group" aria-label="Velg grafvisning">
+            <button
+              type="button"
+              id="graph-mode-words-btn"
+              class="btn btn-sm view-toggle-btn active"
+              title="Vis ordgalaksen med enkeltord og koordinasjonskanter"
+            >
+              Ordgalakse
+            </button>
+            <button
+              type="button"
+              id="graph-mode-clusters-btn"
+              class="btn btn-sm view-toggle-btn"
+              title="Vis graf over overlappsclustre der kantstyrken er graden av overlapp"
+            >
+              Overlappsgraf
+            </button>
+          </div>
           <label class="toolbar-item" title="Spredning i grafen (spread)">
             <span>Spread</span>
             <input id="spread-range" type="range" min="0.5" max="2.4" step="0.1" value="1.2" />

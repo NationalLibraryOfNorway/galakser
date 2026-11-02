@@ -1,6 +1,7 @@
 import './style.css';
 import {
   BaseClusterAlgorithm,
+  buildClusterOverlapGraph,
   CliqueGroup,
   CorpusType,
   fetchGalaxyGraph,
@@ -11,7 +12,7 @@ import {
   OverlapStrategy,
   recomputeGraphClustering,
 } from './graph';
-import { GraphVisualizer } from './visualizer';
+import { GraphViewMode, GraphVisualizer } from './visualizer';
 
 // DOM Elements
 const form = document.getElementById('galaxy-form') as HTMLFormElement;
@@ -23,6 +24,10 @@ const fetchBtn = document.getElementById('fetch-btn') as HTMLButtonElement;
 const statusBadge = document.getElementById('status-badge') as HTMLElement;
 
 const canvas = document.getElementById('galaxy-canvas') as HTMLCanvasElement;
+const graphModeWordsBtn = document.getElementById('graph-mode-words-btn') as HTMLButtonElement;
+const graphModeClustersBtn = document.getElementById(
+  'graph-mode-clusters-btn'
+) as HTMLButtonElement;
 const spreadRange = document.getElementById('spread-range') as HTMLInputElement;
 const fontsizeRange = document.getElementById('fontsize-range') as HTMLInputElement;
 const arrowsToggle = document.getElementById('arrows-toggle') as HTMLInputElement;
@@ -79,6 +84,7 @@ const installPwaBtn = document.getElementById('install-pwa-btn') as HTMLButtonEl
 // State
 let currentGraph: GalaxyGraph | null = null;
 let currentSelectedNode: GraphNode | null = null;
+let graphViewMode: GraphViewMode = 'words';
 let sortField: 'id' | 'degreeCentrality' | 'betweennessCentrality' | 'closenessCentrality' =
   'degreeCentrality';
 let sortAsc = false;
@@ -92,8 +98,27 @@ const visualizer = new GraphVisualizer(canvas, {
   onNodeSelect: (node) => {
     currentSelectedNode = node;
     updateInspector(node);
+    if (graphViewMode === 'clusters' && node) {
+      document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
+      const cardEl = overlapClustersContainer.querySelector<HTMLElement>(
+        `.group-card[data-overlap-label="${CSS.escape(node.id)}"]`
+      );
+      if (cardEl) {
+        cardEl.classList.add('active');
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
   },
   onNodeDoubleClick: (node) => {
+    if (graphViewMode === 'clusters' && currentGraph) {
+      const targetCluster = currentGraph.overlap.clusters.find((c) => c.label === node.id);
+      setGraphViewMode('words');
+      if (targetCluster) {
+        visualizer.highlightSubset(targetCluster.words);
+        clearHighlightBtn.hidden = false;
+      }
+      return;
+    }
     wordsInput.value = node.id;
     loadGalaxy();
   },
@@ -133,6 +158,47 @@ cutoffInput.addEventListener('input', () => {
 });
 
 // Graph Toolbar Controls
+function updateStatusBadgeText() {
+  if (!currentGraph) return;
+  const baseAlgo = (clusterAlgoSelect.value || 'leiden') as BaseClusterAlgorithm;
+  const algoName = baseAlgo === 'leiden' ? 'Leiden' : 'Louvain';
+  if (graphViewMode === 'clusters') {
+    statusBadge.textContent = `Overlappsgraf: ${currentGraph.overlap.clusters.length} klynger · ${currentGraph.overlap.clusterEdges.length} overlappskanter · ${currentGraph.overlap.bridgeWords.length} bro-ord (${algoName})`;
+  } else {
+    statusBadge.textContent = `${currentGraph.nodes.size} noder · ${currentGraph.edges.length} kanter · ${currentGraph.clusters.length} clustre (${algoName})`;
+  }
+}
+
+function setGraphViewMode(mode: GraphViewMode, preserveHighlight = false) {
+  graphViewMode = mode;
+  graphModeWordsBtn.classList.toggle('active', mode === 'words');
+  graphModeClustersBtn.classList.toggle('active', mode === 'clusters');
+  arrowsToggle.disabled = mode === 'clusters';
+  currentSelectedNode = null;
+  inspector.hidden = true;
+  if (!preserveHighlight) {
+    clearHighlightBtn.hidden = true;
+  }
+
+  if (!currentGraph) return;
+  if (mode === 'clusters') {
+    const clusterGraph = buildClusterOverlapGraph(currentGraph);
+    visualizer.setGraph(clusterGraph, 'clusters', currentGraph.overlap.clusterEdges);
+    switchTab('overlap');
+  } else {
+    visualizer.setGraph(currentGraph, 'words');
+  }
+  updateStatusBadgeText();
+}
+
+graphModeWordsBtn.addEventListener('click', () => {
+  if (graphViewMode !== 'words') setGraphViewMode('words');
+});
+
+graphModeClustersBtn.addEventListener('click', () => {
+  if (graphViewMode !== 'clusters') setGraphViewMode('clusters');
+});
+
 spreadRange.addEventListener('input', () => {
   visualizer.setSettings({ spread: Number(spreadRange.value) });
 });
@@ -172,6 +238,34 @@ function updateInspector(node: GraphNode | null) {
   inspector.hidden = false;
   inspDot.style.backgroundColor = node.color;
   inspTitle.textContent = node.id;
+
+  const inspectorActionsEl = inspector.querySelector<HTMLElement>('.inspector-actions');
+
+  if (graphViewMode === 'clusters' && currentGraph) {
+    const cluster = currentGraph.overlap.clusters.find((c) => c.label === node.id);
+    const connectedEdges = currentGraph.overlap.clusterEdges.filter(
+      (ce) => ce.source === node.id || ce.target === node.id
+    );
+    const sharedSummary = connectedEdges
+      .map((ce) => {
+        const other = ce.source === node.id ? ce.target : ce.source;
+        return `${other} (${ce.sharedCount}: ${ce.sharedWords.slice(0, 2).join(', ')}${ce.sharedWords.length > 2 ? '…' : ''})`;
+      })
+      .join(' · ');
+
+    inspCluster.textContent = cluster
+      ? `Anker: ${cluster.origLabel} · ${cluster.words.length} ord (${cluster.uniqueWordCount} unike)${sharedSummary ? ` · Overlapp mot: ${sharedSummary}` : ' · Ingen overlapp mot andre klynger'}`
+      : `Overlappsklynge (${node.size} ord)`;
+    inspDeg.textContent = `${node.size} ord (${node.undirectedDegree} naboklynger / ${node.totalDegree} bro-treff)`;
+    inspCent.textContent = cluster ? `H=${cluster.entropyNorm.toFixed(2)}` : node.degreeCentrality.toFixed(3);
+    inspBetw.textContent = cluster
+      ? `I=${Math.round(cluster.innovationRate * 100)} %`
+      : node.betweennessCentrality.toFixed(3);
+    if (inspectorActionsEl) inspectorActionsEl.hidden = true;
+    return;
+  }
+
+  if (inspectorActionsEl) inspectorActionsEl.hidden = false;
   const overlapList = currentGraph?.overlap.nodeToClusters.get(node.id) ?? [];
   if (overlapList.length > 1) {
     inspCluster.textContent = `Cluster: ${node.communityLabel || 'Ukjent'} · Overlapp (${overlapList.length}): ${overlapList.join(', ')}`;
@@ -263,8 +357,14 @@ function recomputeAndRenderOverlap() {
   renderOverlapClusters(currentGraph);
   renderCliques(currentGraph);
   renderCentralityTable(currentGraph);
-  visualizer.render();
-  statusBadge.textContent = `${currentGraph.nodes.size} noder · ${currentGraph.edges.length} kanter · ${currentGraph.clusters.length} clustre (${baseAlgo === 'leiden' ? 'Leiden' : 'Louvain'})`;
+
+  if (graphViewMode === 'clusters') {
+    const clusterGraph = buildClusterOverlapGraph(currentGraph);
+    visualizer.setGraph(clusterGraph, 'clusters', currentGraph.overlap.clusterEdges);
+  } else {
+    visualizer.render();
+  }
+  updateStatusBadgeText();
   if (currentSelectedNode) updateInspector(currentSelectedNode);
 }
 
@@ -374,6 +474,11 @@ function renderOverlapClusters(graph: GalaxyGraph) {
       pill.title = `Tilhører ${item.clusters.length} clustre: ${item.clusters.join(', ')}`;
       pill.innerHTML = `${item.word}<span class="pill-badge">${item.clusters.length}</span>`;
       pill.addEventListener('click', () => {
+        if (graphViewMode === 'clusters') {
+          visualizer.highlightSubset(item.clusters);
+          clearHighlightBtn.hidden = false;
+          return;
+        }
         visualizer.highlightSubset(null);
         clearHighlightBtn.hidden = true;
         visualizer.selectNodeById(item.word);
@@ -389,6 +494,7 @@ function renderOverlapClusters(graph: GalaxyGraph) {
   for (const cluster of ov.clusters) {
     const card = document.createElement('div');
     card.className = 'group-card';
+    card.dataset.overlapLabel = cluster.label;
     const addedSet = new Set(cluster.addedWords);
 
     const header = document.createElement('div');
@@ -401,8 +507,12 @@ function renderOverlapClusters(graph: GalaxyGraph) {
     title.addEventListener('click', () => {
       document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
       card.classList.add('active');
-      visualizer.highlightSubset(cluster.words);
-      clearHighlightBtn.hidden = false;
+      if (graphViewMode === 'clusters') {
+        visualizer.selectNodeById(cluster.label);
+      } else {
+        visualizer.highlightSubset(cluster.words);
+        clearHighlightBtn.hidden = false;
+      }
     });
 
     const count = document.createElement('span');
@@ -456,6 +566,12 @@ function renderOverlapClusters(graph: GalaxyGraph) {
       }
 
       pill.addEventListener('click', () => {
+        if (graphViewMode === 'clusters') {
+          const membershipsForWord = ov.nodeToClusters.get(word) ?? [];
+          visualizer.highlightSubset(membershipsForWord);
+          clearHighlightBtn.hidden = false;
+          return;
+        }
         visualizer.highlightSubset(null);
         clearHighlightBtn.hidden = true;
         visualizer.selectNodeById(word);
@@ -490,8 +606,20 @@ function renderClusters(graph: GalaxyGraph) {
     title.addEventListener('click', () => {
       document.querySelectorAll('.group-card.active').forEach((el) => el.classList.remove('active'));
       card.classList.add('active');
-      visualizer.highlightSubset(cluster.words);
-      clearHighlightBtn.hidden = false;
+      if (graphViewMode === 'clusters') {
+        const matchingOverlap = graph.overlap.clusters
+          .filter((oc) => oc.label === cluster.label || oc.origLabel.includes(cluster.label))
+          .map((oc) => oc.label);
+        if (matchingOverlap.length === 1) {
+          visualizer.selectNodeById(matchingOverlap[0]);
+        } else if (matchingOverlap.length > 1) {
+          visualizer.highlightSubset(matchingOverlap);
+          clearHighlightBtn.hidden = false;
+        }
+      } else {
+        visualizer.highlightSubset(cluster.words);
+        clearHighlightBtn.hidden = false;
+      }
     });
 
     const count = document.createElement('span');
@@ -509,6 +637,12 @@ function renderClusters(graph: GalaxyGraph) {
       pill.className = 'word-pill';
       pill.textContent = word;
       pill.addEventListener('click', () => {
+        if (graphViewMode === 'clusters') {
+          const membershipsForWord = graph.overlap.nodeToClusters.get(word) ?? [];
+          visualizer.highlightSubset(membershipsForWord);
+          clearHighlightBtn.hidden = false;
+          return;
+        }
         visualizer.highlightSubset(null);
         clearHighlightBtn.hidden = true;
         visualizer.selectNodeById(word);
@@ -1217,7 +1351,12 @@ async function loadGalaxy() {
     activeCliqueKey = null;
     collapsedCliqueKeys.clear();
     collapsedWordsCliqueKeys.clear();
-    visualizer.setGraph(graph);
+    if (graphViewMode === 'clusters') {
+      const clusterGraph = buildClusterOverlapGraph(graph);
+      visualizer.setGraph(clusterGraph, 'clusters', graph.overlap.clusterEdges);
+    } else {
+      visualizer.setGraph(graph, 'words');
+    }
 
     renderClusters(graph);
     recomputeAndRenderOverlap();
@@ -1225,7 +1364,7 @@ async function loadGalaxy() {
     renderCentralityTable(graph);
     initPathsTab(graph);
 
-    statusBadge.textContent = `${graph.nodes.size} noder · ${graph.edges.length} kanter · ${graph.clusters.length} clustre`;
+    updateStatusBadgeText();
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Ukjent feil';
     statusBadge.textContent = `Feil: ${msg}`;
