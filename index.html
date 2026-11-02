@@ -100,145 +100,114 @@
     </form>
 
     <main class="workspace">
-      <section class="graph-stage" aria-label="Interaktiv nettverksgraf">
-        <canvas id="galaxy-canvas"></canvas>
+      <nav class="tab-nav" role="tablist" aria-orientation="vertical" aria-label="Analysevalg">
+        <button
+          type="button"
+          class="tab-btn"
+          role="tab"
+          aria-selected="true"
+          data-tab="about"
+        >
+          Om appen
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          role="tab"
+          aria-selected="false"
+          data-tab="clusters"
+        >
+          Clustre
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          role="tab"
+          aria-selected="false"
+          data-tab="overlap"
+        >
+          Overlappsclustre
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          role="tab"
+          aria-selected="false"
+          data-tab="cliques"
+        >
+          Klikkstruktur
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          role="tab"
+          aria-selected="false"
+          data-tab="centrality"
+        >
+          Sentralitet
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          role="tab"
+          aria-selected="false"
+          data-tab="paths"
+        >
+          Sti mellom noder
+        </button>
+      </nav>
 
-        <div class="graph-toolbar">
-          <div class="view-toggle-group graph-mode-toggle" role="group" aria-label="Velg grafvisning">
-            <button
-              type="button"
-              id="graph-mode-words-btn"
-              class="btn btn-sm view-toggle-btn active"
-              title="Vis ordgalaksen med enkeltord og koordinasjonskanter"
-            >
-              Ordgalakse
-            </button>
-            <button
-              type="button"
-              id="graph-mode-clusters-btn"
-              class="btn btn-sm view-toggle-btn"
-              title="Vis graf over overlappsclustre der kantstyrken er graden av overlapp"
-            >
-              Overlappsgraf
-            </button>
-          </div>
-          <label class="toolbar-item" title="Spredning i grafen (spread)">
-            <span>Spread</span>
-            <input id="spread-range" type="range" min="0.5" max="2.4" step="0.1" value="1.2" />
-          </label>
-          <label class="toolbar-item" title="Tekststørrelse (fontsize)">
-            <span>Tekst</span>
-            <input id="fontsize-range" type="range" min="0" max="24" step="1" value="13" />
-          </label>
-          <label class="toolbar-item">
-            <input id="arrows-toggle" type="checkbox" checked />
-            <span>Piler</span>
-          </label>
-          <button type="button" id="zoom-in-btn" class="btn btn-sm" title="Zoom inn">+</button>
-          <button type="button" id="zoom-out-btn" class="btn btn-sm" title="Zoom ut">−</button>
-          <button type="button" id="reset-view-btn" class="btn btn-sm" title="Nullstill visning">
-            Sentrer
-          </button>
-          <button type="button" id="export-png-btn" class="btn btn-sm" title="Last ned PNG">
-            PNG
-          </button>
-        </div>
-
-        <div id="status-badge" class="status-badge">Klar</div>
-
-        <aside id="node-inspector" class="node-inspector" hidden aria-live="polite">
-          <div class="inspector-header">
-            <div class="inspector-word">
-              <span id="insp-dot" class="color-dot"></span>
-              <span id="insp-title"></span>
-            </div>
-            <button type="button" id="insp-close-btn" class="btn btn-sm" aria-label="Lukk">✕</button>
-          </div>
-          <div id="insp-cluster" style="font-size: 0.78rem; color: var(--text-muted)"></div>
-          <div class="inspector-metrics">
-            <div class="metric-box">
-              <span>Grad</span>
-              <strong id="insp-deg">0</strong>
-            </div>
-            <div class="metric-box">
-              <span>Sentralitet</span>
-              <strong id="insp-cent">0</strong>
-            </div>
-            <div class="metric-box">
-              <span>Betweenness</span>
-              <strong id="insp-betw">0</strong>
-            </div>
-          </div>
-          <div class="inspector-actions">
-            <button type="button" id="insp-from-btn" class="btn btn-sm">Sett som «Fra»</button>
-            <button type="button" id="insp-to-btn" class="btn btn-sm">Sett som «Til»</button>
-            <button type="button" id="insp-add-word-btn" class="btn btn-sm">+ Legg til i søk</button>
-            <button type="button" id="insp-solo-word-btn" class="btn btn-sm">Ny galakse</button>
-          </div>
-        </aside>
-      </section>
-
-      <aside class="analysis-panel" aria-label="Nettverksanalyse">
-        <div class="tab-nav" role="tablist">
-          <button
-            type="button"
-            class="tab-btn"
-            role="tab"
-            aria-selected="true"
-            data-tab="clusters"
-          >
-            Clustre
-          </button>
-          <button
-            type="button"
-            class="tab-btn"
-            role="tab"
-            aria-selected="false"
-            data-tab="overlap"
-          >
-            Overlappsclustre
-          </button>
-          <button
-            type="button"
-            class="tab-btn"
-            role="tab"
-            aria-selected="false"
-            data-tab="cliques"
-          >
-            Klikkstruktur
-          </button>
-          <button
-            type="button"
-            class="tab-btn"
-            role="tab"
-            aria-selected="false"
-            data-tab="centrality"
-          >
-            Sentralitet
-          </button>
-          <button
-            type="button"
-            class="tab-btn"
-            role="tab"
-            aria-selected="false"
-            data-tab="paths"
-          >
-            Sti mellom noder
-          </button>
-          <button
-            type="button"
-            class="tab-btn"
-            role="tab"
-            aria-selected="false"
-            data-tab="about"
-          >
-            Om appen
-          </button>
-        </div>
-
+      <aside class="analysis-panel" aria-label="Innhold og nettverksanalyse">
         <div class="tab-content">
+          <!-- Tab 0: Om appen (vises øverst som standard) -->
+          <section id="tab-about" class="tab-pane" role="tabpanel">
+            <div class="group-card about-card">
+              <h3 class="about-card-heading">Hvordan Ordgalakser bygger og analyserer nettverket</h3>
+              <p>
+                <strong>Ordgalakser</strong> bygger et nettverk av ord ut fra <em>koordinasjoner</em> i Nasjonalbibliotekets tekstsamlinger – altså uttrykk der ord opptrer sideordnet med bindeord som «og», «eller» og komma (f.eks. <em>«is og snø»</em> eller <em>«frihet og demokrati»</em>). Når to ord stadig sidestilles i språkbruken, peker det på at de tilhører samme semantiske felt eller samme diskursive ramme.
+              </p>
+              <p>
+                Fra søkeordet <em>x</em> går applikasjonen <strong>to steg ut i koordinasjonsgrafen</strong> (<em>x → y → z</em>): Først hentes de mest sentrale ordene <em>y</em> som koordineres direkte med <em>x</em>, og deretter ordene <em>z</em> som i sin tur koordineres med <em>y</em>. Dermed fanger grafen både det nære nabolaget rundt søkeordet og de bredere tematiske sammenhengene som naboordene inngår i.
+              </p>
+              <p>
+                Ved å gruppere grafen i <strong>clustre</strong> (Leiden/Louvain), <strong>klikk-hierarkier</strong> (<em>k</em>-klikker) og <strong>overlappsclustre</strong> (via linjegrafen <em>L(G)</em> med lekkasjestopper) viser verktøyet hvordan ord henger sammen, og det kan brukes til å finne både diskursive sammenhenger og ulike betydningsaspekter ved ord:
+              </p>
+              <ul class="about-examples-list">
+                <li>
+                  <strong>Flertydige hverdagsord (betydningsaspekter, polysemi og homonymi):</strong> Et ord som
+                  <button type="button" class="example-word-chip" data-example-word="is">is</button>
+                  forgreiner seg i tydelige klynger for vær og føre (<em>snø, kulde, slaps</em>), mat og dessert (<em>kaker, brus, sjokolade</em>) og polare strøk, mens
+                  <button type="button" class="example-word-chip" data-example-word="pålegg">pålegg</button>
+                  splittes mellom matvarer (<em>brød, smør, pølser</em>) og juridiske direktiver (<em>forbud, instrukser, tvangsmulkt</em>).
+                </li>
+                <li>
+                  <strong>Politiske og ideologiske begreper (diskursive sammenhenger):</strong> Søk på
+                  <button type="button" class="example-word-chip" data-example-word="kommunisme">kommunisme</button>
+                  eller
+                  <button type="button" class="example-word-chip" data-example-word="frihet">frihet</button>
+                  viser hvilke begreper som historisk stilles sammen i offentligheten – fra styringsformer og ideologiske motpoler (<em>fascisme, nazisme, kapitalisme, sosialisme</em>) til verdibegreper og samfunnsinstitusjoner.
+                </li>
+                <li>
+                  <strong>Stedsnavn og geografi:</strong> Et stedsnavn som
+                  <button type="button" class="example-word-chip" data-example-word="Paris">Paris</button>
+                  samler både europeiske metropoler og kunst- og kulturbyer (<em>London, Berlin, Roma, Wien</em>) og viser hvilke geografiske og kulturelle akser stedet inngår i.
+                </li>
+                <li>
+                  <strong>Fornavn og etternavn (person- og kulturkretser):</strong> Fornavn som
+                  <button type="button" class="example-word-chip" data-example-word="Per">Per</button>
+                  avtegner typiske navnepar og fortellingskontekster (<em>Pål, Espen, Kari, Ola</em>), mens etternavn som
+                  <button type="button" class="example-word-chip" data-example-word="Hamsun">Hamsun</button>
+                  plasserer forfatteren i det litterære og idéhistoriske landskapet (<em>Ibsen, Bjørnson, Undset, Kinck, Dostojevskij</em>).
+                </li>
+              </ul>
+              <p class="about-card-tip">
+                <strong>Tips:</strong> Klikk på et av eksempelordene over for å bygge galaksen direkte, og velg <strong>Clustre</strong>, <strong>Overlappsclustre</strong> eller <strong>Klikkstruktur</strong> i menyen til venstre når du vil utforske ordgruppene nærmere.
+              </p>
+            </div>
+          </section>
+
           <!-- Tab 1: Clustre -->
-          <section id="tab-clusters" class="tab-pane" role="tabpanel">
+          <section id="tab-clusters" class="tab-pane" role="tabpanel" hidden>
             <div class="overlap-controls" style="margin-block-end: 0.75rem">
               <div class="overlap-strategy-bar">
                 <label for="cluster-algo-select">Klyngealgoritme:</label>
@@ -323,7 +292,7 @@
             <div id="cliques-container"></div>
           </section>
 
-          <!-- Tab 3: Sentralitet -->
+          <!-- Tab 4: Sentralitet -->
           <section id="tab-centrality" class="tab-pane" role="tabpanel" hidden>
             <p style="margin-block-start: 0; font-size: 0.82rem; color: var(--text-muted)">
               Klikk på en kolonneoverskrift for å sortere, eller på en rad for å fokusere noden.
@@ -341,7 +310,7 @@
             </table>
           </section>
 
-          <!-- Tab 4: Sti mellom noder -->
+          <!-- Tab 5: Sti mellom noder -->
           <section id="tab-paths" class="tab-pane" role="tabpanel" hidden>
             <div class="path-form">
               <div class="field-group">
@@ -371,55 +340,86 @@
             <datalist id="graph-nodes-datalist"></datalist>
             <div id="paths-results"></div>
           </section>
-
-          <!-- Tab 6: Om appen -->
-          <section id="tab-about" class="tab-pane" role="tabpanel" hidden>
-            <div class="group-card about-card">
-              <h3 class="about-card-heading">Hvordan Ordgalakser bygger og analyserer nettverket</h3>
-              <p>
-                <strong>Ordgalakser</strong> bygger et nettverk av ord ut fra <em>koordinasjoner</em> i Nasjonalbibliotekets tekstsamlinger – altså uttrykk der ord opptrer sideordnet med bindeord som «og», «eller» og komma (f.eks. <em>«is og snø»</em> eller <em>«frihet og demokrati»</em>). Når to ord stadig sidestilles i språkbruken, peker det på at de tilhører samme semantiske felt eller samme diskursive ramme.
-              </p>
-              <p>
-                Fra søkeordet <em>x</em> går applikasjonen <strong>to steg ut i koordinasjonsgrafen</strong> (<em>x → y → z</em>): Først hentes de mest sentrale ordene <em>y</em> som koordineres direkte med <em>x</em>, og deretter ordene <em>z</em> som i sin tur koordineres med <em>y</em>. Dermed fanger grafen både det nære nabolaget rundt søkeordet og de bredere tematiske sammenhengene som naboordene inngår i.
-              </p>
-              <p>
-                Ved å gruppere grafen i <strong>clustre</strong> (Leiden/Louvain), <strong>klikk-hierarkier</strong> (<em>k</em>-klikker) og <strong>overlappsclustre</strong> (via linjegrafen <em>L(G)</em> med lekkasjestopper) viser verktøyet hvordan ord henger sammen, og det kan brukes til å finne både diskursive sammenhenger og ulike betydningsaspekter ved ord:
-              </p>
-              <ul class="about-examples-list">
-                <li>
-                  <strong>Flertydige hverdagsord (betydningsaspekter, polysemi og homonymi):</strong> Et ord som
-                  <button type="button" class="example-word-chip" data-example-word="is">is</button>
-                  forgreiner seg i tydelige klynger for vær og føre (<em>snø, kulde, slaps</em>), mat og dessert (<em>kaker, brus, sjokolade</em>) og polare strøk, mens
-                  <button type="button" class="example-word-chip" data-example-word="pålegg">pålegg</button>
-                  splittes mellom matvarer (<em>brød, smør, pølser</em>) og juridiske direktiver (<em>forbud, instrukser, tvangsmulkt</em>).
-                </li>
-                <li>
-                  <strong>Politiske og ideologiske begreper (diskursive sammenhenger):</strong> Søk på
-                  <button type="button" class="example-word-chip" data-example-word="kommunisme">kommunisme</button>
-                  eller
-                  <button type="button" class="example-word-chip" data-example-word="frihet">frihet</button>
-                  viser hvilke begreper som historisk stilles sammen i offentligheten – fra styringsformer og ideologiske motpoler (<em>fascisme, nazisme, kapitalisme, sosialisme</em>) til verdibegreper og samfunnsinstitusjoner.
-                </li>
-                <li>
-                  <strong>Stedsnavn og geografi:</strong> Et stedsnavn som
-                  <button type="button" class="example-word-chip" data-example-word="Paris">Paris</button>
-                  samler både europeiske metropoler og kunst- og kulturbyer (<em>London, Berlin, Roma, Wien</em>) og viser hvilke geografiske og kulturelle akser stedet inngår i.
-                </li>
-                <li>
-                  <strong>Fornavn og etternavn (person- og kulturkretser):</strong> Fornavn som
-                  <button type="button" class="example-word-chip" data-example-word="Per">Per</button>
-                  avtegner typiske navnepar og fortellingskontekster (<em>Pål, Espen, Kari, Ola</em>), mens etternavn som
-                  <button type="button" class="example-word-chip" data-example-word="Hamsun">Hamsun</button>
-                  plasserer forfatteren i det litterære og idéhistoriske landskapet (<em>Ibsen, Bjørnson, Undset, Kinck, Dostojevskij</em>).
-                </li>
-              </ul>
-              <p class="about-card-tip">
-                <strong>Tips:</strong> Klikk på et av eksempelordene over for å bygge galaksen direkte, og bytt mellom <strong>Ordgalakse</strong> og <strong>Overlappsgraf</strong> i grafvinduet for å se både enkeltordene og hvordan klyngene henger sammen via bro-ord.
-              </p>
-            </div>
-          </section>
         </div>
       </aside>
+
+      <section class="graph-stage" aria-label="Interaktiv nettverksgraf">
+        <canvas id="galaxy-canvas"></canvas>
+
+        <div class="graph-toolbar">
+          <div class="view-toggle-group graph-mode-toggle" role="group" aria-label="Velg grafvisning">
+            <button
+              type="button"
+              id="graph-mode-words-btn"
+              class="btn btn-sm view-toggle-btn active"
+              title="Vis ordgalaksen med enkeltord og koordinasjonskanter"
+            >
+              Ordgalakse
+            </button>
+            <button
+              type="button"
+              id="graph-mode-clusters-btn"
+              class="btn btn-sm view-toggle-btn"
+              title="Vis graf over overlappsclustre der kantstyrken er graden av overlapp"
+            >
+              Overlappsgraf
+            </button>
+          </div>
+          <label class="toolbar-item" title="Spredning i grafen (spread)">
+            <span>Spread</span>
+            <input id="spread-range" type="range" min="0.5" max="2.4" step="0.1" value="1.2" />
+          </label>
+          <label class="toolbar-item" title="Tekststørrelse (fontsize)">
+            <span>Tekst</span>
+            <input id="fontsize-range" type="range" min="0" max="24" step="1" value="13" />
+          </label>
+          <label class="toolbar-item">
+            <input id="arrows-toggle" type="checkbox" checked />
+            <span>Piler</span>
+          </label>
+          <button type="button" id="zoom-in-btn" class="btn btn-sm" title="Zoom inn">+</button>
+          <button type="button" id="zoom-out-btn" class="btn btn-sm" title="Zoom ut">−</button>
+          <button type="button" id="reset-view-btn" class="btn btn-sm" title="Nullstill visning">
+            Sentrer
+          </button>
+          <button type="button" id="export-png-btn" class="btn btn-sm" title="Last ned PNG">
+            PNG
+          </button>
+        </div>
+
+        <div id="status-badge" class="status-badge">Klar</div>
+
+        <aside id="node-inspector" class="node-inspector" hidden aria-live="polite">
+          <div class="inspector-header">
+            <div class="inspector-word">
+              <span id="insp-dot" class="color-dot"></span>
+              <span id="insp-title"></span>
+            </div>
+            <button type="button" id="insp-close-btn" class="btn btn-sm" aria-label="Lukk">✕</button>
+          </div>
+          <div id="insp-cluster" style="font-size: 0.78rem; color: var(--text-muted)"></div>
+          <div class="inspector-metrics">
+            <div class="metric-box">
+              <span>Grad</span>
+              <strong id="insp-deg">0</strong>
+            </div>
+            <div class="metric-box">
+              <span>Sentralitet</span>
+              <strong id="insp-cent">0</strong>
+            </div>
+            <div class="metric-box">
+              <span>Betweenness</span>
+              <strong id="insp-betw">0</strong>
+            </div>
+          </div>
+          <div class="inspector-actions">
+            <button type="button" id="insp-from-btn" class="btn btn-sm">Sett som «Fra»</button>
+            <button type="button" id="insp-to-btn" class="btn btn-sm">Sett som «Til»</button>
+            <button type="button" id="insp-add-word-btn" class="btn btn-sm">+ Legg til i søk</button>
+            <button type="button" id="insp-solo-word-btn" class="btn btn-sm">Ny galakse</button>
+          </div>
+        </aside>
+      </section>
     </main>
 
     <script type="module" src="/src/main.ts"></script>

@@ -319,18 +319,18 @@ body {
   font-size: 0.78rem;
 }
 
-/* Main workspace split layout */
+/* Main workspace 3-panel layout: [faner, innhold, grafvisualisering] */
 .workspace {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(340px, 1fr);
+  grid-template-columns: 168px minmax(310px, 0.95fr) minmax(0, 1.55fr);
   min-block-size: 0;
 }
 
 @media (max-width: 1024px) {
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(440px, 58dvh) auto;
+    grid-template-rows: auto auto minmax(440px, 58dvh);
   }
 }
 
@@ -341,7 +341,6 @@ body {
   flex-direction: column;
   min-block-size: 460px;
   background-color: var(--bg-page);
-  border-inline-end: 1px solid var(--border-color);
 }
 
 #galaxy-canvas {
@@ -469,11 +468,12 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-/* Analysis Side Panel (Tabs for Clustre, Klikkstruktur, Sentralitet, Stier) */
+/* Content Panel (Panel 2: Innhold) */
 .analysis-panel {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-surface);
+  border-inline-end: 1px solid var(--border-color);
   min-block-size: 0;
   max-block-size: calc(100dvh - 125px);
 }
@@ -481,39 +481,64 @@ body {
 @media (max-width: 1024px) {
   .analysis-panel {
     max-block-size: none;
+    border-inline-end: none;
+    border-block-end: 1px solid var(--border-color);
   }
 }
 
+/* Vertical Tab Sidebar (Panel 1: Faner) */
 .tab-nav {
   display: flex;
-  flex-wrap: wrap;
-  border-block-end: 1px solid var(--border-color);
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0.55rem;
+  border-inline-end: 1px solid var(--border-color);
   background-color: var(--bg-elevated);
-  padding-inline: 0.5rem;
 }
 
 .tab-btn {
-  flex: 1 1 auto;
-  padding-block: 0.7rem;
-  padding-inline: 0.65rem;
-  font-size: 0.82rem;
+  display: flex;
+  align-items: safe center;
+  justify-content: flex-start;
+  text-align: start;
+  padding-block: 0.62rem;
+  padding-inline: 0.75rem;
+  font-size: 0.84rem;
   font-weight: 600;
-  border: none;
-  border-block-end: 2px solid transparent;
+  border: 1px solid transparent;
+  border-inline-start: 3px solid transparent;
+  border-radius: 0.45rem;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .tab-btn:hover {
   color: var(--text-main);
+  background-color: color-mix(in srgb, var(--bg-surface) 60%, transparent);
 }
 
 .tab-btn[aria-selected='true'] {
   color: var(--accent-color);
-  border-block-end-color: var(--accent-color);
+  border-color: var(--border-color);
+  border-inline-start: 3px solid var(--accent-color);
   background-color: var(--bg-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 1024px) {
+  .tab-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-inline-end: none;
+    border-block-end: 1px solid var(--border-color);
+  }
+
+  .tab-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
 }
 
 .tab-content {

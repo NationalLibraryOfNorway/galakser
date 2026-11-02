@@ -129,12 +129,17 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   visualizer.render();
 });
 
+const VALID_TABS = ['about', 'clusters', 'overlap', 'cliques', 'centrality', 'paths'] as const;
+type TabId = (typeof VALID_TABS)[number];
+let currentTab: TabId = 'about';
+
 // Read initial parameters from URL query string if present
 function initFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const w = params.get('words');
   const c = params.get('corpus') as CorpusType | null;
   const lim = params.get('cutoff');
+  const t = params.get('tab') as TabId | null;
 
   if (w) wordsInput.value = w;
   if (c && ['all', 'bok', 'avis', 'eng', 'ger'].includes(c)) corpusSelect.value = c;
@@ -143,6 +148,11 @@ function initFromUrl() {
     cutoffInput.value = String(n);
     cutoffOutput.textContent = String(n);
   }
+  if (t && (VALID_TABS as readonly string[]).includes(t)) {
+    switchTab(t, false);
+  } else {
+    switchTab('about', false);
+  }
 }
 
 function syncUrl() {
@@ -150,6 +160,11 @@ function syncUrl() {
   url.searchParams.set('words', wordsInput.value.trim());
   url.searchParams.set('corpus', corpusSelect.value);
   url.searchParams.set('cutoff', cutoffInput.value);
+  if (currentTab !== 'about') {
+    url.searchParams.set('tab', currentTab);
+  } else {
+    url.searchParams.delete('tab');
+  }
   window.history.replaceState({}, '', url.toString());
 }
 
@@ -317,22 +332,26 @@ inspSoloWordBtn.addEventListener('click', () => {
 // Tab switching
 const openAboutBtn = document.getElementById('open-about-btn') as HTMLButtonElement | null;
 
-function switchTab(tabName: string) {
+function switchTab(tabName: string, updateUrl = true) {
+  if ((VALID_TABS as readonly string[]).includes(tabName)) {
+    currentTab = tabName as TabId;
+  }
   tabBtns.forEach((btn) => {
     const isTarget = btn.dataset.tab === tabName;
     btn.setAttribute('aria-selected', String(isTarget));
   });
   const panes: Record<string, HTMLElement | null> = {
+    about: document.getElementById('tab-about'),
     clusters: document.getElementById('tab-clusters'),
     overlap: document.getElementById('tab-overlap'),
     cliques: document.getElementById('tab-cliques'),
     centrality: document.getElementById('tab-centrality'),
     paths: document.getElementById('tab-paths'),
-    about: document.getElementById('tab-about'),
   };
   for (const [key, pane] of Object.entries(panes)) {
     if (pane) pane.hidden = key !== tabName;
   }
+  if (updateUrl) syncUrl();
 }
 
 tabBtns.forEach((btn) => {
